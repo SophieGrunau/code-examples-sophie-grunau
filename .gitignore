@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.venv/
+env/
+venv/
+.ipynb_checkpoints/
+
+# R
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+
+# Jupyter notebooks
+.ipynb_checkpoints/
+
+# LaTeX
+*.aux
+*.log
+*.out
+*.toc
+*.pdf
+*.bbl
+*.blg
+
+# MacOS cruft
+.DS_Store
+
+# Temporary / scratch / exports
+*.tmp
+*.bak
+*.swp
+*.zip
+*.tar.gz
+*.nc

@@ -1,0 +1,8 @@
+Rows = predicted class, Columns = true class
+	ALK	HM	IM	LM	S	UM
+ALK	59	0	1	0	0	3
+HM	0	69	34	3	2	0
+IM	5	0	260	0	0	0
+LM	0	0	2	161	0	0
+S	0	21	6	0	15	0
+UM	0	0	4	2	0	39
