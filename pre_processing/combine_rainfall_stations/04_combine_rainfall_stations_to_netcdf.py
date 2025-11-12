@@ -21,8 +21,8 @@ Assumptions:
       "Rainfall amount (millimetres)" columns.
 
 Usage:
-    python combine_rainfall_stations_to_netcdf.py --Lake <lake_short_code>
-    e.g. python combine_rainfall_stations_to_netcdf.py --Lake LW
+    python 04_combine_rainfall_stations_to_netcdf.py --Lake <lake_short_code>
+    e.g. python 04_combine_rainfall_stations_to_netcdf.py --Lake LW
 
 """
 
@@ -39,7 +39,7 @@ parser.add_argument("--Lake", required=True, help="Lake short code (e.g. LE, LW,
 args = parser.parse_args()
 
 Lake = args.Lake
-data_dir = Path(f"/Users/leasophiegrunau/Desktop/PhD_Australia/Programming/Python/Data.nosync/rainfall_stations/{Lake}_rainfall_stations")
+data_dir = Path(f"/Users/leasophiegrunau/Documents/Work/Bewerbungen/code-examples-sophie-grunau/pre_processing/combine_rainfall_stations/{Lake}_rainfall_stations")
 stations_info_file = Path(f"{data_dir}/{Lake}_rainfall_stations.csv")
 output_file = Path(f"{data_dir}/{Lake}_daily_station_rainfall.nc")
 

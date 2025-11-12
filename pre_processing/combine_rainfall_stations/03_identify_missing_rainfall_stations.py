@@ -16,8 +16,8 @@ This script:
       This can be used for retrying the download step later.
 
 Usage:
-    python identify_missing_rainfall_stations.py --Lake <lake_short_code>
-    e.g. python identify_missing_rainfall_stations.py --Lake LW
+    python 03_identify_missing_rainfall_stations.py --Lake <lake_short_code>
+    e.g. python 03_identify_missing_rainfall_stations.py --Lake LW
 
 """
 
@@ -34,7 +34,7 @@ args = parser.parse_args()
 Lake = args.Lake
 
 # Data directory
-data_dir = Path(f"/Users/leasophiegrunau/Desktop/PhD_Australia/Programming/Python/Data.nosync/rainfall_stations/{Lake}_rainfall_stations")
+data_dir = Path(f"/Users/leasophiegrunau/Documents/Work/Bewerbungen/code-examples-sophie-grunau/pre_processing/combine_rainfall_stations/{Lake}_rainfall_stations")
 
 
 # ========== Main workflow ==========

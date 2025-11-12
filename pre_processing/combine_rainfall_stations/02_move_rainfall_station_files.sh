@@ -1,3 +1,15 @@
+# 02_move_rainfall_station_files.sh
+# Author: Sophie Grunau
+# Dependencies: 
+#   - CSV file: ${LAKE}_rainfall_stations.csv"
+#   - bash
+# Notes:
+#   - Paths for Data_dir and Downloads_dir must be adapted to your system.
+#   - Make sure the rainfall station CSV exists and has the correct format.
+# Usage: ./02_move_rainfall_station_files.sh <LakeShortCode>
+# This script moves all BOM rainfall station csv files from the Downloads folder to your data folder.
+
+
 #!/bin/bash
 
 # ========== Inputs ==========
@@ -8,7 +20,7 @@ if [ -z "$LAKE" ]; then
 fi
 
 # Define paths
-Data_dir="/Users/leasophiegrunau/Desktop/PhD_Australia/Programming/Python/Data.nosync/rainfall_stations/${LAKE}_rainfall_stations"
+Data_dir="/Users/leasophiegrunau/Documents/Work/Bewerbungen/code-examples-sophie-grunau/pre_processing/combine_rainfall_stations/${LAKE}_rainfall_stations"
 Downloads_dir="/Users/leasophiegrunau/Downloads"
 csv_file="$Data_dir/${LAKE}_rainfall_stations.csv"
 failed_log="$Data_dir/${LAKE}_missed_rainfall_stations.csv"

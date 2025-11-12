@@ -1,4 +1,4 @@
-﻿"Grain","PredictionFit_my_data","Sample_Group","Age"
+﻿"Grain","PredictionFit_new_data","Sample_Group","Age"
 "23WC07ap-001","LM","Group 1",5671.316135
 "23WC07ap-002","LM","Group 1",5667.416513
 "23WC07ap-003","LM","Group 1",7202.497695

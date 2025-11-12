@@ -1,3 +1,12 @@
+# bashrc_functions.sh
+# Author: Sophie Grunau
+# Dependencies: NCI environment with qsub
+#   - crop_precip_files_agcd.pbs, crop_temp_files_agcd.pbs
+#   - crop_precip_files_agcd.sh, crop_temp_files_agcd.sh
+# Usage: source this file in your shell, then run e.g.
+#   crop_precip_submit grid=r005 freq=daily region=LE
+#   crop_temp_submit var=temp freq=daily region=LE
+
 crop_temp_submit() {
 	for arg in "$@"; do
 		case $arg in

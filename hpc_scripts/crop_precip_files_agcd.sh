@@ -1,3 +1,17 @@
+# crop_precip_files_agcd.sh
+# Author: Sophie Grunau
+# Dependencies: 
+#   - nco
+#   - netcdf
+#   - bash
+# Note: This script is designed to run on NCI where the AGCD data are stored. 
+# Paths for input_dir, output_dir, and scratch_dir must be adapted to your account.
+# Usage: ./crop_precip_files_agcd.sh grid=r001 freq=monthly region=LE
+
+# This script copies yearly agcd precipitation files of an input frequency and grid size and cuts them to a pre-defined region.
+# It then merges all years into one file and removes the temporary files.
+
+
 #!/bin/bash
 
 # ========== Parse and validate arguments ==========
@@ -167,8 +181,8 @@ else
 fi
 
 # ========== Delete individual files  ==========
-#rm $output_file_year
-#echo "Individual files removed."
+rm $output_file_year
+echo "Individual files removed."
 
   
   
