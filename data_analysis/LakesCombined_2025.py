@@ -21,26 +21,25 @@ import matplotlib.lines as mlines
 import matplotlib.dates as mdates
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 import cartopy.crs as ccrs
-import cartopy.feature as cfeature
 from cartopy.mpl.ticker import (LongitudeFormatter, LatitudeFormatter,
                                 LongitudeLocator, LatitudeLocator)
 import warnings
-import cftime
-CF = cftime.DatetimeNoLeap
-import regionmask
-
 
 Lake = 'LW'
 Lake_longname = 'LakeWoods'
+
+#Define variables for rolling sum
+window_size_daily = 112  # Define the rolling window size in days
+lower_threshold_daily = 600 # Define lower threshold
+higher_threshold_daily = 800 # Define higher threshold
+
 
 input_dir = r'/Users/leasophiegrunau/Documents/Work/Bewerbungen/code-examples-sophie-grunau/data_analysis/Data'
 output_dir = r'/Users/leasophiegrunau/Documents/Work/Bewerbungen/code-examples-sophie-grunau/data_analysis/Output'
 
 presentation_bom_colours = ['#000033','#336666', '#99cc33', '#339966','#8EB28E','#336600']
 blue_colors = ['#0000FF', '#00008B', '#4169E1', '#6495ED', '#87CEFA', '#4682B4', '#5F9EA0', '#7B68EE', '#87CEEB', '#ADD8E6']
-blue_colors_map = ['#FFFFFF', '#F0F8FF', '#B0C4DE', '#87CEEB', '#6A5ACD', '#483D8B', '#4169E1', '#0000CD', '#000080', '#000033']
 dea_colour_list = ['tomato', 'darkred', 'orange', 'gold', 'olive', 'forestgreen', 'teal', 'aqua', 'steelblue', 'navy', 'purple', 'fuchsia', 'pink', 'maroon', 'lightcoral', 'red', 'sienna', 'tan', '#000033','#336666', '#99cc33', '#339966','#8EB28E','#336600', '#87CEEB', '#ADD8E6']
-event_colour_list = [ 'maroon', 'orange', 'teal', 'steelblue', 'fuchsia', 'tomato']
 
 
 #-----------------------------------------------------------------------------------------------------------------------------------
@@ -84,6 +83,48 @@ def filter_out_empty_stations(ds, station_type):
     ds_filtered = ds_filtered.assign(filtered_vars)
     
     return ds_filtered
+
+
+def read_enso_files():
+    """
+    Reads ENSO time series data files and returns a combined xarray DataArray.
+
+    Returns
+    -------
+    xr.DataArray
+        A DataArray of shape (time, enso_indices) with:
+        - `time` coordinate: datetime index corresponding to year and month.
+        - `enso_indices` coordinate: string labels from the metadata for each index.
+        - Attributes:
+            - `units`: '°C'
+            - `source`: NOAA
+            - `url`: https://psl.noaa.gov/data/timeseries/month/.
+        - Name: 'Monthly ENSO indices'
+    """
+    file_paths = glob.glob(f'{input_dir}/ClimaticDrivers/enso_*.nc')
+    
+    indices_list = []
+    for path in file_paths:
+        ds = xr.open_dataset(path)
+        var_name = list(ds.data_vars)
+        da_var = ds[var_name[0]]    
+        indices_list.append(da_var)
+    
+    enso_indices_names = [da.name if da.name is not None else f"da{i+1}" for i, da in enumerate(indices_list)]
+    da_combined = xr.concat(indices_list, dim='enso_indices', join='outer')
+    da_combined = da_combined.assign_coords(enso_indices=np.array(enso_indices_names, dtype=object))
+    da_combined = da_combined.rename('enso')
+    da_combined.attrs = {
+        "long_name": "Monthly ENSO indices",
+        "description": (
+            "Combined ENSO dataset containing multiple sea surface temperature anomaly indices along an 'enso_indices' dimension. "
+            "Includes Niño 3.4 (ERSSTv5), Niño 3.4 (HadISST), and the Oceanic Niño Index (ONI) from NOAA CPC."
+        ),
+        "source": "NOAA",
+        "units": "°C",
+        "url": "https://psl.noaa.gov/data/timeseries/month/",
+    }
+    return da_combined
 
 
 def read_ipo_files():
@@ -150,47 +191,6 @@ def read_ipo_files():
     )
     return da
 
-
-def read_enso_files():
-    """
-    Reads ENSO time series data files and returns a combined xarray DataArray.
-
-    Returns
-    -------
-    xr.DataArray
-        A DataArray of shape (time, enso_indices) with:
-        - `time` coordinate: datetime index corresponding to year and month.
-        - `enso_indices` coordinate: string labels from the metadata for each index.
-        - Attributes:
-            - `units`: '°C'
-            - `source`: NOAA
-            - `url`: https://psl.noaa.gov/data/timeseries/month/.
-        - Name: 'Monthly ENSO indices'
-    """
-    file_paths = glob.glob(f'{input_dir}/ClimaticDrivers/enso_*.nc')
-    
-    indices_list = []
-    for path in file_paths:
-        ds = xr.open_dataset(path)
-        var_name = list(ds.data_vars)
-        da_var = ds[var_name[0]]    
-        indices_list.append(da_var)
-    
-    enso_indices_names = [da.name if da.name is not None else f"da{i+1}" for i, da in enumerate(indices_list)]
-    da_combined = xr.concat(indices_list, dim='enso_indices', join='outer')
-    da_combined = da_combined.assign_coords(enso_indices=np.array(enso_indices_names, dtype=object))
-    da_combined = da_combined.rename('enso')
-    da_combined.attrs = {
-        "long_name": "Monthly ENSO indices",
-        "description": (
-            "Combined ENSO dataset containing multiple sea surface temperature anomaly indices along an 'enso_indices' dimension. "
-            "Includes Niño 3.4 (ERSSTv5), Niño 3.4 (HadISST), and the Oceanic Niño Index (ONI) from NOAA CPC."
-        ),
-        "source": "NOAA",
-        "units": "°C",
-        "url": "https://psl.noaa.gov/data/timeseries/month/",
-    }
-    return da_combined
 
 
 def find_rainfall_peaks_near_lake_peaks(ds, percentile=0.8):
@@ -601,6 +601,7 @@ def identify_peaks_and_troughs(series_values, distance_val):
         'peaks': np.array(cleaned_peaks)
         }
 
+     
 def extract_peak_segments(ds, distance, time_unit, window, threshold1, threshold2):
     """
     Extract rainfall segments between troughs from the rolling cumulative sum 
@@ -816,37 +817,39 @@ def classify_rainfall_windows_by_event_and_threshold(ds, cum_rainfall_over_windo
     })
 
     return classified_da
-   
+
+    
+def window_sum_vectorised(ds, da, window_size):
+
+    da = da.assign_coords({
+        'cum_window': ds[f'cum_window_{window_size_daily}_days'].reset_coords(drop=True),
+        'cum_window_is_event': ds['cum_window_is_event'].reset_coords(drop=True),
+        'cum_window_above_threshold': ds[f'cum_window_above_{lower_threshold_daily}'].reset_coords(drop=True)
+    })
+    da_dropped_na = da.where(~da.cum_window.isnull(), drop=True)
+        
+    k = window_size
+    n = da_dropped_na.sizes['time']
+    
+    # Create a DataArray to use as group labels
+    chunk_labels = xr.DataArray(np.arange(n) // k, dims='time')
+    
+    # Group by these labels, sum and ass coords
+    windowed_sum  = da_dropped_na.groupby(chunk_labels).sum(dim='time')
+    windowed_sum_coords_events = da_dropped_na.cum_window_is_event.groupby(chunk_labels).mean(dim='time')
+    windowed_sum_coords_above_threshold = da_dropped_na.cum_window_above_threshold.groupby(chunk_labels).sum(dim='time')
+    windowed_sum_coords_time = da_dropped_na.time.groupby(chunk_labels).first()
+    
+    windowed_sum = windowed_sum.assign_coords({
+        'time': windowed_sum_coords_time,
+        'above_threshold': windowed_sum_coords_above_threshold,
+        'dea_events': windowed_sum_coords_events
+    })
+    windowed_sum = windowed_sum.swap_dims({'group': 'time'})
+    return windowed_sum
+
 
 #### ========= Functions: Plot data =========
-
-def plot_dea_events(ds, axes_no, zorder_plot, zorder_text):
-    """
-    Plot lake events from DEA with markers and labels at the maximum lake size for each event.
-
-    Parameters:
-        ds (xarray.Dataset): Dataset containing 'dea' with lake_variable dimension and 'dea_events'.
-        axes_no (matplotlib.axes.Axes): The axis to plot on.
-        zorder_plot (int): Drawing order of the line plot.
-        zorder_text (int): Drawing order of the text labels.
-    
-    Notes
-    -----
-    - Assumes that `presentation_bom_colours[0]` is defined globally.
-    """
-    lake_size = ds['dea'].sel(lake_variable='Size')
-    events = np.unique(ds['dea_events'].dropna(dim='time').values)
-    
-    for event in events:
-        event_sizes = lake_size.where(lake_size.dea_events == event, drop=True).dropna(dim='time')
-        axes_no.plot(event_sizes.time, event_sizes, linestyle='--', marker='o', markersize=6,
-                     color=presentation_bom_colours[0], label=f'Event {int(event)}', zorder=zorder_plot)
-    
-        label_size = event_sizes.where(event_sizes.dea_event_max, drop=True)
-        axes_no.text(label_size.time, label_size + 3, f'Event {int(event)}',
-                     fontsize=20, ha='center', va='bottom',
-                     color=presentation_bom_colours[0], zorder=zorder_text)
-
 
 def plot_dea_timeseries(ds, time_unit_lake, timeseries_type=None, time_unit_data=None, plot_mean=False, plot_station=False, peaks=False):
     """
@@ -892,10 +895,12 @@ def plot_dea_timeseries(ds, time_unit_lake, timeseries_type=None, time_unit_data
     # Dea data and mean and / or station data is plotted 
     else:
         # Peaks: only highlight if all conditions met. If not, issue warning and disable peaks
-        if peaks and plot_mean and time_unit_data == 'monthly' and timeseries_type == 'rainfall':
-            file_name_part1 = f'{Lake}_FloodEvents-{time_unit_lake}_RainfallPeaks-monthly'
+        if peaks:
+            if plot_mean and time_unit_data == 'monthly' and timeseries_type == 'rainfall':
+                file_name_part1 = f'{Lake}_FloodEvents-{time_unit_lake}_RainfallPeaks-monthly'
+            else:
+                warnings.warn("Peaks can only be highlighted for monthly rainfall; plotting without peak markers.")
         else:
-            warnings.warn("Peaks can only be highlighted for monthly rainfall; plotting without peak markers.")            
             file_name_part1 = f'{Lake}_FloodEvents-{time_unit_lake}_{timeseries_type.capitalize()}-{time_unit_data}'
             peaks = None
         
@@ -918,6 +923,7 @@ def plot_dea_timeseries(ds, time_unit_lake, timeseries_type=None, time_unit_data
         lake_size = monthly_ds['dea'].sel(lake_variable='Size')
     else: 
         print("time_unit_lake ('daily'/'monthly') missing or wrong. Aborting.")
+        return
 	
     # Runoff/ Rainfall: Check conditions for plotting mean and / or station data
     if plot_mean or plot_station:
@@ -1137,272 +1143,6 @@ def plot_cumulative_rainfall_all_events(ds, magnitude=False, filtered=False):
     plt.close() 
 
 
-def threshold_analysis_plot(ds, window_max, threshold, time_unit):    
-    #Extract variables
-    start_date= ds.time.values[0].astype('datetime64[s]').astype(object).strftime("%Y")
-    
-    if time_unit == 'days':
-        distance_val = 221
-    elif time_unit == 'months':
-        distance_val = 8
-    else:
-        print("Wrong time_unit. Aborting.")
-        return        
-    
-    rolling_sums_dict = {}
-    for window in range(1, window_max+1):
-    
-        # Step 1: Calculate rolling cumulative sum of mean rainfall
-        rainfall_sum = ds['mean_gridded_rainfall'].rolling(time=window, center=False).sum()
-    
-        # Step 2: Find peaks
-        peaks_and_troughs = identify_peaks_and_troughs(rainfall_sum, distance_val)
-    
-        # Sanity check
-        if not (len(peaks_and_troughs['peaks']) == len(peaks_and_troughs['troughs']) or len(peaks_and_troughs['peaks']) == len(peaks_and_troughs['troughs']) - 1):
-            raise ValueError("Number of peaks must be equal to or one less than number of troughs.")
-    
-        peak_dates = rainfall_sum.time[peaks_and_troughs['peaks']]
-        rolling_sum_peaks = rainfall_sum.sel(time=peak_dates)
-        
-        # Step 3: Filter da to yearly subset (with target date)
-        rolling_sums_dict[f'{window} days'] = threshold_analysis_select_closest_per_year(rolling_sum_peaks)
-    
-    
-    # Combine into one DataArray with new dimension "var"
-    combined_da = xr.concat(rolling_sums_dict .values(), dim="window")
-    combined_da = combined_da.assign_coords(window=list(rolling_sums_dict.keys()))
-    combined_da = combined_da.sel(year=slice(combined_da.year[1], combined_da.year[-1]))
-    
-    # Mask event years
-    event_ids = ds.dea_events.where(ds.dea_event_max, drop=True)
-    event_years = event_ids.time.values.astype('datetime64[Y]')
-    mask = np.isin(combined_da['year'].values, event_years.astype('datetime64[ns]'))
-    
-    combined_events_da = combined_da.isel(year=mask)
-    combined_excluding_events_da = combined_da.isel(year=~mask)
-    
-    # === Fill gaps so lines are continuous ===
-    combined_excluding_events_da_filled = (
-        combined_excluding_events_da.ffill(dim='window').bfill(dim='window'))
-    
-    combined_events_da_filled = (
-        combined_events_da.ffill(dim='window').bfill(dim='window'))
-    
-    # === Plot (use the *_filled arrays) ===
-    fig, ax = plt.subplots(figsize=(20, 10))
-    
-    for year in combined_excluding_events_da_filled['year'].values:
-        ax.plot(
-            combined_excluding_events_da_filled['window'].values,
-            combined_excluding_events_da_filled.sel(year=year).values,
-            color='#b3cde0'
-        )
-    
-    for i, event_year in enumerate(combined_events_da_filled['year'].values):
-        yvals = combined_events_da_filled.sel(year=event_year).values
-        if np.nanmax(yvals)<600:
-            ax.plot(
-                combined_events_da_filled['window'].values,
-                yvals,
-                color='maroon'
-            )
-        else:
-            ax.plot(
-                combined_events_da_filled['window'].values,
-                yvals,
-                color='#005b96'
-            )
-        #ax.text(int(window_max)+1, np.nanmax(yvals), f'{int(i+1)}', fontsize=8, color='#005b96')
-    
-    # === Threshold line ===
-    ax.axhline(y=threshold, color='#03396c', linestyle='--')
-    ax.axvline(x=112, color='#03396c', linestyle='--')
-    
-    # === Formatting ===
-    ax.set_xlabel(f'Cumulative {time_unit.capitalize()}', fontsize=18)
-    ax.set_ylabel('Cumulative Rainfall (mm)', fontsize=18)
-    ax.grid(True)
-    xticks = np.arange(0, int(window_max)+1, 16)
-    xtick_labels = [f"{int(x)}" for x in xticks]
-    ax.set_xticks(xticks, xtick_labels, fontsize=13)
-    ax.tick_params(axis='both', labelsize=13)
-    
-    # === Save Plot ===
-    plt.savefig(f'{output_dir}/Fig5_{Lake}_CumRainfall_OptimalRollingSum_ThresholdAnalysis_{start_date}to2024.png', bbox_inches='tight')
-    plt.close()
-
-        
-def plot_rolling_sum_window(ds, start_date, window, time_unit, threshold1, threshold2, plot_peaks_troughs=False, peaks_troughs=None):
-    """
-    Plot cumulative rainfall and lake events, highlighting periods above specified thresholds.
-
-    Parameters:
-        ds (xr.Dataset): Dataset containing rainfall and DEA lake data.
-        peaks_troughs (dict): Dictionary with 'peaks' and 'troughs' as xr.DataArrays.
-        start_date (str): Start of the plotting period.
-        window (int): Rolling window size.
-        time_unit (str): 'months' or 'days'.
-        threshold1 (float): Lower rainfall threshold to highlight.
-        threshold2 (float): Higher rainfall threshold to highlight.
-    """
-    if start_date=='1900':
-        grid_spacing=5
-    else:
-        grid_spacing=1
-
-    #Extract variables
-    rainfall_sum = ds['mean_gridded_rainfall_rolling_sum']
-    rainfall_sum_above_threshold1 = rainfall_sum.where(rainfall_sum[f'rolling_peak_above_{threshold1}'])
-    rainfall_sum_above_threshold2 = rainfall_sum.where(rainfall_sum[f'rolling_peak_above_{threshold2}'])
-    dea = ds['dea'].sel(lake_variable='Size')
-		
-    # Create a large figure with two y-axes (twin axis)
-    fig = plt.figure(figsize=(40, 10))
-    ax1 = fig.add_subplot(111)        # Left y-axis for rainfall
-    ax2 = ax1.twinx()                 # Right y-axis for lake size
-
-    # === Plot rolling cumulative rainfall ===
-    ax1.plot(rainfall_sum.time, rainfall_sum.values,
-             linestyle='-', label=f'{window} {time_unit.capitalize()} Rolling Cumulative Sum of Rainfall', alpha=0.5, color='#b3cde0', zorder=2)
-    
-    ax1.plot(rainfall_sum_above_threshold1.time, rainfall_sum_above_threshold1.values,
-             linestyle='-', label=f'Peak above {threshold1} mm', alpha=0.5, color='#011f4b', zorder=3)
-    
-    ax1.plot(rainfall_sum_above_threshold2.time, rainfall_sum_above_threshold2.values,
-             linestyle='-', label=f'Peak above {threshold2} mm', alpha=0.5, color='maroon', zorder=4)
-    
-    # === Plot peaks and troughs ===
-    if plot_peaks_troughs:
-        if peaks_troughs is None:
-            raise ValueError("If plot_peaks_troughs is True, you must provide a peaks_troughs dictionary.")
-
-        peaks = peaks_troughs['peaks']
-        troughs = peaks_troughs['troughs']
-
-        ax1.plot(peaks.time, peaks.values, linestyle='', marker='o', label='Peaks', alpha=0.5, color='maroon', zorder=2)
-        ax1.plot(troughs.time, troughs.values,linestyle='', marker='o', label='Troughs', alpha=0.5, color='green', zorder=2)
-    
-    # === Plot full time series of lake size with event labels ===    
-    ax2.plot(dea.time.values, dea.values,
-                 color='grey', linestyle='', marker='o', markersize=8, alpha=0.4, zorder=1)
-
-    plot_dea_events(ds, ax2, zorder_plot=5, zorder_text=10)
-    
-    # === Add a horizontal line at threshold levels ===
-    ax1.axhline(y=threshold1, color='#03396c', linestyle='--')
-    ax1.axhline(y=threshold2, color='maroon', linestyle='--')
-    	
-    # === Axis Formatting ===
-    ax1.legend(loc='upper left', bbox_to_anchor=(0, 1), fontsize=20)
-    ax1.grid(True, which='major', axis='both') # Add grid to the background
-    ax1.xaxis.set_major_locator(mdates.YearLocator(grid_spacing))
-    ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
-    plt.setp(ax1.get_xticklabels(), rotation=90, ha='center', fontsize=20)
-    ax1.set_ylabel(f'Cumulative Rainfall ({rainfall_sum.units}/{window} {time_unit})', fontsize=20)    	    
-    ax1.tick_params(axis='y', labelsize=20)
-    ax2.set_ylabel(f'Lake Size {dea.units}', fontsize=20)    	    
-    ax2.tick_params(axis='y', labelsize=20)
-
-    # === Save figure ===
-    plt.savefig(f'{output_dir}/Fig6_{Lake}_{start_date}to2024_{window}{time_unit}.pdf', bbox_inches='tight')
-    plt.close()
-
-
-def plot_rolling_sum_variable_window(ds, start_date, time_unit, threshold, window_min, window_max):
-    
-    if time_unit == 'days':
-        distance_val = 180
-        time_step = 16
-    elif time_unit == 'months':
-        distance_val = 6
-        time_step = 1
-    else:
-        print("Wrong time_unit. Needs to 'days' or 'months'.")
-        return
-    
-    # Colourmap
-    norm = plt.Normalize(vmin=1, vmax=((window_max - window_min)/time_step)+1)
-    cmap_blue = truncate_colormap(colormaps['Blues'], minval=0.2, maxval=1.0)
-    colours_blue = [cmap_blue(norm(i + 1)) for i in range(int(((window_max - window_min)/time_step)+1))]
-    cmap_red = truncate_colormap(colormaps['Reds'], minval=0.2, maxval=1.0)
-    colours_red = [cmap_red(norm(i + 1)) for i in range(int(((window_max - window_min)/time_step)+1))]
-    
-    #Extract variables
-    dea = ds['dea'].sel(lake_variable='Size')
-
-    # Create a large figure with two y-axes (twin axis)
-    fig = plt.figure(figsize=(40, 10))
-    ax1 = fig.add_subplot(111)        # Left y-axis for rainfall
-    ax2 = ax1.twinx()                 # Right y-axis for lake size
-    
-    for window in range(window_min,window_max+1,time_step):
-        i = int((window-window_min)/time_step)
-    
-        # Step 1: Calculate rolling cumulative sum of mean rainfall
-        rainfall_sum = ds['mean_gridded_rainfall'].rolling(time=window, center=False).sum()
-        
-        # Step 2: check if peaks are above threshold
-        # Step 2a: Troughs are used to segment the time series into rainfall episodes
-        peaks_and_troughs = identify_peaks_and_troughs(rainfall_sum, distance_val)
-    
-        # Sanity check
-        if not (len(peaks_and_troughs['peaks']) == len(peaks_and_troughs['troughs']) or len(peaks_and_troughs['peaks']) == len(peaks_and_troughs['troughs']) - 1):
-            raise ValueError("Number of peaks must be equal to or one less than number of troughs.")
-    
-        peak_dates = rainfall_sum.time[peaks_and_troughs['peaks']]
-        rolling_sum_peaks = rainfall_sum.sel(time=peak_dates)
-    
-        # Step 2b: Loop through each segment defined by two troughs
-        peak_above_thresh = xr.DataArray(np.zeros(rainfall_sum.time.size, dtype=bool),
-                                          coords={"time": rainfall_sum.time}, dims=["time"])
-        
-        for j in range(len(peaks_and_troughs['troughs']) - 1):
-            # Time slice between consecutive troughs
-            start_idx = peaks_and_troughs['troughs'][j]
-            end_idx = peaks_and_troughs['troughs'][j+1]
-            time_slice = rainfall_sum.time[start_idx:end_idx]
-    
-            # Peak info
-            peak = rolling_sum_peaks[j].values
-    
-            # Mark boolean coordinates for thresholds
-            if peak >= threshold:
-                peak_above_thresh.loc[dict(time=time_slice)] = True
-    
-        # Assign boolean coordinates to rolling_sum dynamically based on threshold values (3b)
-            rainfall_sum = rainfall_sum.assign_coords({
-            'rolling_peak_above_threshold': peak_above_thresh
-        })
-        
-        rainfall_sum_above_threshold = rainfall_sum.where(rainfall_sum.rolling_peak_above_threshold, drop=False)
-    
-        # Step 3: Plot
-        ax1.plot(rainfall_sum.time, rainfall_sum.values,
-                 linestyle='-', label=f'{window} {time_unit.capitalize()} Rolling Cumulative Sum of Rainfall', alpha=0.5, color=colours_blue[i], zorder=2)
-    
-        ax1.plot(rainfall_sum_above_threshold.time, rainfall_sum_above_threshold.values,
-                 linestyle='-', label=f'{window} {time_unit.capitalize()} Rolling Cumulative Sum of Rainfall', alpha=0.5, color=colours_red[i], zorder=2)
-        
-    # === Plot full time series of lake size with event labels ===    
-    ax2.plot(dea.time.values, dea.values,
-                 color='grey', linestyle='', marker='o', markersize=8, alpha=0.4, zorder=1)
-    
-    plot_dea_events(ds, ax2, zorder_plot=5, zorder_text=10)
-        
-    # === Axis Formatting ===
-    ax1.set_ylabel(f'Cumulative Rainfall ({rainfall_sum.units})', fontsize=20)    	
-    #ax1.legend(loc='upper left', bbox_to_anchor=(0, 1), fontsize=20)
-    ax1.grid(True, which='major', axis='both') # Add grid to the background
-    ax1.xaxis.set_major_locator(mdates.YearLocator(1))
-    ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
-    plt.setp(ax1.get_xticklabels(), rotation=90, ha='center', fontsize=20)
-    	
-    # === Save figure ===
-    plt.savefig(f'{output_dir}/Fig6_{Lake}_{start_date}to2024_window_{window_min}-{window_max}_{time_unit}.png', bbox_inches='tight')
-    plt.close()
-    
-
 def plot_cum_rainfall_with_threshold(ds, threshold, time_interval, ranked=False):
     """
     Plot cumulative rainfall segments associated with lake-filling events
@@ -1512,154 +1252,440 @@ def plot_cum_rainfall_with_threshold(ds, threshold, time_interval, ranked=False)
     plt.savefig(f'{output_dir}/Fig4_{Lake}_CumRainfall_BeforeRollingMax_{window}{time_unit}{file_suffix}.png', bbox_inches='tight')
     plt.close()
 
+    
+def plot_threshold_analysis(ds, window_max, threshold, time_unit):    
+    #Extract variables
+    start_date= ds.time.values[0].astype('datetime64[s]').astype(object).strftime("%Y")
+    
+    if time_unit == 'days':
+        distance_val = 221
+    elif time_unit == 'months':
+        distance_val = 8
+    else:
+        print("Wrong time_unit. Aborting.")
+        return        
+    
+    rolling_sums_dict = {}
+    for window in range(1, window_max+1):
+    
+        # Step 1: Calculate rolling cumulative sum of mean rainfall
+        rainfall_sum = ds['mean_gridded_rainfall'].rolling(time=window, center=False).sum()
+    
+        # Step 2: Find peaks
+        peaks_and_troughs = identify_peaks_and_troughs(rainfall_sum, distance_val)
+    
+        # Sanity check
+        if not (len(peaks_and_troughs['peaks']) == len(peaks_and_troughs['troughs']) or len(peaks_and_troughs['peaks']) == len(peaks_and_troughs['troughs']) - 1):
+            raise ValueError("Number of peaks must be equal to or one less than number of troughs.")
+    
+        peak_dates = rainfall_sum.time[peaks_and_troughs['peaks']]
+        rolling_sum_peaks = rainfall_sum.sel(time=peak_dates)
+        
+        # Step 3: Filter da to yearly subset (with target date)
+        rolling_sums_dict[f'{window} days'] = threshold_analysis_select_closest_per_year(rolling_sum_peaks)
+    
+    
+    # Combine into one DataArray with new dimension "var"
+    combined_da = xr.concat(rolling_sums_dict .values(), dim="window")
+    combined_da = combined_da.assign_coords(window=list(rolling_sums_dict.keys()))
+    combined_da = combined_da.sel(year=slice(combined_da.year[1], combined_da.year[-1]))
+    
+    # Mask event years
+    event_ids = ds.dea_events.where(ds.dea_event_max, drop=True)
+    event_years = event_ids.time.values.astype('datetime64[Y]')
+    mask = np.isin(combined_da['year'].values, event_years.astype('datetime64[ns]'))
+    
+    combined_events_da = combined_da.isel(year=mask)
+    combined_excluding_events_da = combined_da.isel(year=~mask)
+    
+    # === Fill gaps so lines are continuous ===
+    combined_excluding_events_da_filled = (
+        combined_excluding_events_da.ffill(dim='window').bfill(dim='window'))
+    
+    combined_events_da_filled = (
+        combined_events_da.ffill(dim='window').bfill(dim='window'))
+    
+    # === Plot (use the *_filled arrays) ===
+    fig, ax = plt.subplots(figsize=(20, 10))
+    
+    for year in combined_excluding_events_da_filled['year'].values:
+        ax.plot(
+            combined_excluding_events_da_filled['window'].values,
+            combined_excluding_events_da_filled.sel(year=year).values,
+            color='#b3cde0'
+        )
+    
+    for i, event_year in enumerate(combined_events_da_filled['year'].values):
+        yvals = combined_events_da_filled.sel(year=event_year).values
+        if np.nanmax(yvals)<600:
+            ax.plot(
+                combined_events_da_filled['window'].values,
+                yvals,
+                color='maroon'
+            )
+        else:
+            ax.plot(
+                combined_events_da_filled['window'].values,
+                yvals,
+                color='#005b96'
+            )
+        #ax.text(int(window_max)+1, np.nanmax(yvals), f'{int(i+1)}', fontsize=8, color='#005b96')
+    
+    # === Threshold line ===
+    ax.axhline(y=threshold, color='#03396c', linestyle='--')
+    ax.axvline(x=112, color='#03396c', linestyle='--')
+    
+    # === Formatting ===
+    ax.set_xlabel(f'Cumulative {time_unit.capitalize()}', fontsize=18)
+    ax.set_ylabel('Cumulative Rainfall (mm)', fontsize=18)
+    ax.grid(True)
+    xticks = np.arange(0, int(window_max)+1, 16)
+    xtick_labels = [f"{int(x)}" for x in xticks]
+    ax.set_xticks(xticks, xtick_labels, fontsize=13)
+    ax.tick_params(axis='both', labelsize=13)
+    
+    # === Save Plot ===
+    plt.savefig(f'{output_dir}/Fig5_{Lake}_CumRainfall_OptimalRollingSum_ThresholdAnalysis_{start_date}to2024.png', bbox_inches='tight')
+    plt.close()
 
-def plot_rolling_sum_with_enso(ds, start_date, window, time_unit, threshold1, threshold2, enso_index, enso_index_name):
+        
+def plot_rolling_sum_window(ax_left, ax_right, ds, start_date, window, time_unit, threshold1, threshold2, plot_peaks_troughs=False, peaks_troughs=None):
+    """
+    Plot cumulative rainfall and lake events, highlighting periods above specified thresholds.
+
+    Parameters:
+        ds (xr.Dataset): Dataset containing rainfall and DEA lake data.
+        peaks_troughs (dict): Dictionary with 'peaks' and 'troughs' as xr.DataArrays.
+        start_date (str): Start of the plotting period.
+        window (int): Rolling window size.
+        time_unit (str): 'months' or 'days'.
+        threshold1 (float): Lower rainfall threshold to highlight.
+        threshold2 (float): Higher rainfall threshold to highlight.
+    """
     if start_date=='1900':
-        grid_spacing=10
+        grid_spacing=5
     else:
         grid_spacing=1
-    
+
     #Extract variables
     rainfall_sum = ds['mean_gridded_rainfall_rolling_sum']
     rainfall_sum_above_threshold1 = rainfall_sum.where(rainfall_sum[f'rolling_peak_above_{threshold1}'])
     rainfall_sum_above_threshold2 = rainfall_sum.where(rainfall_sum[f'rolling_peak_above_{threshold2}'])
     dea = ds['dea'].sel(lake_variable='Size')
-    enso=ds['enso'].sel(enso_indices=enso_index).sel(time=slice(f"{start_date}-01-01", "2025-01-01"))
-    	
-    ### PLOT: timeseries of 128 day cumulative rainfall with SOI ###
-    fig = plt.figure(figsize=(40, 10))
-    ax1 = fig.add_subplot(111)
-    ax2 = ax1.twinx()
-    ax3 = ax1.twinx()
-    ax3.spines['right'].set_position(('outward', 120))
-    
-    # Fill the positive and negative areas with different colors
-    ax1.fill_between(enso.time, enso.values, where=enso.values >= 0, color='lightcoral', alpha=0.5)
-    ax1.fill_between(enso.time, enso.values, where=enso.values < 0, color='lightblue', alpha=0.5)
-    
+    events = np.unique(ds['dea_events'].dropna(dim='time').values)
+
+		
     # === Plot rolling cumulative rainfall ===
-    ax2.plot(rainfall_sum.time, rainfall_sum.values,
-             linestyle='-', label=f'{window} {time_unit.capitalize()} Rolling Cumulative Sum of rainfall', alpha=0.5, color='#b3cde0', zorder=2)
+    ax_left.plot(rainfall_sum.time, rainfall_sum.values,
+             linestyle='-', label=f'{window} {time_unit.capitalize()} Rolling Sum of Rainfall', alpha=0.5, color='#b3cde0', zorder=2)
     
-    ax2.plot(rainfall_sum_above_threshold1.time, rainfall_sum_above_threshold1.values,
+    ax_left.plot(rainfall_sum_above_threshold1.time, rainfall_sum_above_threshold1.values,
              linestyle='-', label=f'Peak above {threshold1} mm', alpha=0.5, color='#011f4b', zorder=3)
     
-    ax2.plot(rainfall_sum_above_threshold2.time, rainfall_sum_above_threshold2.values,
+    ax_left.plot(rainfall_sum_above_threshold2.time, rainfall_sum_above_threshold2.values,
+             linestyle='-', label=f'Peak above {threshold2} mm', alpha=0.5, color='maroon', zorder=4)
+    
+    # === Plot peaks and troughs ===
+    if plot_peaks_troughs:
+        if peaks_troughs is None:
+            raise ValueError("If plot_peaks_troughs is True, you must provide a peaks_troughs dictionary.")
+
+        peaks = peaks_troughs['peaks']
+        troughs = peaks_troughs['troughs']
+
+        ax_left.plot(peaks.time, peaks.values, linestyle='', marker='o', label='Peaks', alpha=0.5, color='maroon', zorder=2)
+        ax_left.plot(troughs.time, troughs.values,linestyle='', marker='o', label='Troughs', alpha=0.5, color='green', zorder=2)
+    
+    # === Plot full time series of lake size with event labels ===    
+    ax_right.plot(dea.time.values, dea.values,
+                 color='grey', linestyle='', marker='o', markersize=8, alpha=0.4, zorder=1)
+    
+    for event in events:
+        event_sizes = dea.where(dea.dea_events == event, drop=True).dropna(dim='time')
+        ax_right.plot(event_sizes.time, event_sizes, linestyle='--', marker='o', markersize=6,
+                     color=presentation_bom_colours[0], label=f'Event {int(event)}', zorder=5)
+    
+        label_size = event_sizes.where(event_sizes.dea_event_max, drop=True)
+        ax_right.text(label_size.time, label_size + 3, f'Event {int(event)}',
+                     fontsize=20, ha='center', va='bottom',
+                     color=presentation_bom_colours[0], zorder=10)
+        
+    # === Add a horizontal line at threshold levels ===
+    ax_left.axhline(y=threshold1, color='#03396c', linestyle='--')
+    ax_left.axhline(y=threshold2, color='maroon', linestyle='--')
+    	
+    # === Axis Formatting ===
+    #ax_left.legend(loc='upper left', bbox_to_anchor=(0, 1), fontsize=20)
+    ax_left.grid(True, which='major', axis='both') # Add grid to the background
+    ax_left.xaxis.set_major_locator(mdates.YearLocator(grid_spacing))
+    ax_left.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
+    plt.setp(ax_left.get_xticklabels(), rotation=90, ha='center', fontsize=20)
+    ax_left.set_ylabel(f'Cumulative Rainfall ({rainfall_sum.units}/{window} {time_unit})', fontsize=20)    	    
+    ax_left.tick_params(axis='y', labelsize=20)
+    ax_right.set_ylabel(f'Lake Size {dea.units}', fontsize=20)    	    
+    ax_right.tick_params(axis='y', labelsize=20)
+
+
+def plot_rolling_sum_variable_window(ax_left, ax_right, ds, start_date, time_unit, threshold, window_min, window_max):
+    
+    if time_unit == 'days':
+        distance_val = 180
+        time_step = 16
+    elif time_unit == 'months':
+        distance_val = 6
+        time_step = 1
+    else:
+        print("Wrong time_unit. Needs to 'days' or 'months'.")
+        return
+    
+    if start_date=='1900':
+        grid_spacing=5
+    else:
+        grid_spacing=1
+        
+    # Colourmap
+    norm = plt.Normalize(vmin=1, vmax=((window_max - window_min)/time_step)+1)
+    cmap_blue = truncate_colormap(colormaps['Blues'], minval=0.2, maxval=1.0)
+    colours_blue = [cmap_blue(norm(i + 1)) for i in range(int(((window_max - window_min)/time_step)+1))]
+    cmap_red = truncate_colormap(colormaps['Reds'], minval=0.2, maxval=1.0)
+    colours_red = [cmap_red(norm(i + 1)) for i in range(int(((window_max - window_min)/time_step)+1))]
+    
+    #Extract variables
+    dea = ds['dea'].sel(lake_variable='Size')
+    events = np.unique(ds['dea_events'].dropna(dim='time').values)
+
+    # Start figure
+    for window in range(window_min,window_max+1,time_step):
+        i = int((window-window_min)/time_step)
+    
+        # Step 1: Calculate rolling cumulative sum of mean rainfall
+        rainfall_sum = ds['mean_gridded_rainfall'].rolling(time=window, center=False).sum()
+        
+        # Step 2: check if peaks are above threshold
+        # Step 2a: Troughs are used to segment the time series into rainfall episodes
+        peaks_and_troughs = identify_peaks_and_troughs(rainfall_sum, distance_val)
+    
+        # Sanity check
+        if not (len(peaks_and_troughs['peaks']) == len(peaks_and_troughs['troughs']) or len(peaks_and_troughs['peaks']) == len(peaks_and_troughs['troughs']) - 1):
+            raise ValueError("Number of peaks must be equal to or one less than number of troughs.")
+    
+        peak_dates = rainfall_sum.time[peaks_and_troughs['peaks']]
+        rolling_sum_peaks = rainfall_sum.sel(time=peak_dates)
+    
+        # Step 2b: Loop through each segment defined by two troughs
+        peak_above_thresh = xr.DataArray(np.zeros(rainfall_sum.time.size, dtype=bool),
+                                          coords={"time": rainfall_sum.time}, dims=["time"])
+        
+        for j in range(len(peaks_and_troughs['troughs']) - 1):
+            # Time slice between consecutive troughs
+            start_idx = peaks_and_troughs['troughs'][j]
+            end_idx = peaks_and_troughs['troughs'][j+1]
+            time_slice = rainfall_sum.time[start_idx:end_idx]
+    
+            # Peak info
+            peak = rolling_sum_peaks[j].values
+    
+            # Mark boolean coordinates for thresholds
+            if peak >= threshold:
+                peak_above_thresh.loc[dict(time=time_slice)] = True
+    
+        # Assign boolean coordinates to rolling_sum dynamically based on threshold values (3b)
+            rainfall_sum = rainfall_sum.assign_coords({
+            'rolling_peak_above_threshold': peak_above_thresh
+        })
+        
+        rainfall_sum_above_threshold = rainfall_sum.where(rainfall_sum.rolling_peak_above_threshold, drop=False)
+    
+        # Step 3: Plot
+        ax_left.plot(rainfall_sum.time, rainfall_sum.values,
+                 linestyle='-', label=f'{window} {time_unit.capitalize()} Rolling Cumulative Sum of Rainfall', alpha=0.5, color=colours_blue[i], zorder=2)
+    
+        ax_left.plot(rainfall_sum_above_threshold.time, rainfall_sum_above_threshold.values,
+                 linestyle='-', label=f'{window} {time_unit.capitalize()} Rolling Cumulative Sum of Rainfall', alpha=0.5, color=colours_red[i], zorder=2)
+        
+    # === Plot full time series of lake size with event labels ===    
+    ax_right.plot(dea.time.values, dea.values,
+                 color='grey', linestyle='', marker='o', markersize=8, alpha=0.4, zorder=1)
+        
+    for event in events:
+        event_sizes = dea.where(dea.dea_events == event, drop=True).dropna(dim='time')
+        ax_right.plot(event_sizes.time, event_sizes, linestyle='--', marker='o', markersize=6,
+                     color=presentation_bom_colours[0], label=f'Event {int(event)}', zorder=5)
+    
+        label_size = event_sizes.where(event_sizes.dea_event_max, drop=True)
+        ax_right.text(label_size.time, label_size + 3, f'Event {int(event)}',
+                     fontsize=20, ha='center', va='bottom',
+                     color=presentation_bom_colours[0], zorder=10)
+        
+    # === Axis Formatting ===
+    ax_left.set_ylabel(f'Cumulative Rainfall ({rainfall_sum.units})', fontsize=20)    	
+    ax_left.grid(True, which='major', axis='both') # Add grid to the background
+    ax_left.xaxis.set_major_locator(mdates.YearLocator(grid_spacing))
+    ax_left.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
+    plt.setp(ax_left.get_xticklabels(), rotation=90, ha='center', fontsize=20)
+
+
+def plot_NT_event_map(ax_no, da, start_date, end_date, lake_mask, event=False):
+    pre1987 = da.sel(time=slice(da.time[0], '1986'))
+    post1987 = da.sel(time=slice('1987', da.time[-1]))
+
+    if event:
+        pre1987_subset = pre1987.where(pre1987.above_threshold > 0, drop=True)
+        post1987_subset = post1987.where(~post1987.dea_events.isnull(), drop=True)
+    else:
+        pre1987_subset = pre1987.where(pre1987.above_threshold == 0, drop=True)
+        post1987_subset = post1987.where(post1987.dea_events.isnull(), drop=True)
+    
+    if start_date == '1900':
+        if end_date == '1987':
+            subset = pre1987_subset.mean(dim='time')
+        elif end_date == '2024':  
+            subset = xr.concat([pre1987_subset, post1987_subset], dim='time').mean(dim='time')
+        else:
+            print("Wrong end_date. Aborting.")
+            return               
+    elif start_date =='1987':
+        subset = post1987_subset.mean(dim='time')
+        end_date = '2024'
+    else:
+        print("Wrong start_date. Aborting.")
+        return       
+    
+    # PLOT    
+    ax_no.coastlines()  # Add coastlines
+    
+    # Plot Rainfall
+    im0 = ax_no.pcolormesh(
+        subset.coords['lon'].values,
+        subset.coords['lat'].values,
+        subset.values,
+        cmap='Blues',
+        norm=Normalize(vmin=0, vmax=600),
+        transform=ccrs.PlateCarree()
+    )
+    
+    # Lake mask
+    ax_no.contour(lake_mask.lon, lake_mask.lat, lake_mask.values, colors='k', linewidths=0.75, transform=ccrs.PlateCarree())
+        
+    # Add gridlines
+    gl = ax_no.gridlines(crs=ccrs.PlateCarree(), draw_labels=True,
+                  linewidth=0.5, color='gray', alpha=0.5, linestyle='--')
+    gl.top_labels = False
+    gl.right_labels = False
+    gl.xlocator = LongitudeLocator()
+    gl.ylocator = LatitudeLocator()
+    gl.xformatter = LongitudeFormatter()
+    gl.yformatter = LatitudeFormatter()
+    gl.xlabel_style = {'size': 10, 'color': 'black'}
+    gl.ylabel_style = {'size': 10, 'color': 'black'}
+    
+    return im0
+    
+
+def plot_rolling_sum_with_driver(ax_left, ax_right1, ax_right2, ds, start_date, driver, driver_index, window, time_unit, threshold1, threshold2):
+    if start_date=='1900': 
+        grid_spacing=5
+    else:
+        grid_spacing=1
+    
+    if driver == 'enso':
+        driver_da = lake_daily_1900_ds['enso'].sel(enso_indices=driver_index).sel(time=slice(f"{start_date}-01-01", ds.time[-1]))
+    elif driver == 'ipo':
+        driver_da = lake_daily_1900_ds['ipo'].sel(ipo_indices=driver_index).sel(time=slice(f"{start_date}-01-01", ds.time[-1]))
+    else:
+        print("Wrong driver. Aborting.")
+        return          
+
+    #Extract variables
+    rainfall_sum = ds['mean_gridded_rainfall_rolling_sum']
+    rainfall_sum_above_threshold1 = rainfall_sum.where(rainfall_sum[f'rolling_peak_above_{threshold1}'])
+    rainfall_sum_above_threshold2 = rainfall_sum.where(rainfall_sum[f'rolling_peak_above_{threshold2}'])
+    dea = ds['dea'].sel(lake_variable='Size')
+    events = np.unique(ds['dea_events'].dropna(dim='time').values)
+    	
+    ### PLOT: timeseries of 128 day cumulative rainfall with SOI ###
+    ax_right2.spines['right'].set_position(('outward', 120))
+    
+    # Fill the positive and negative areas with different colors
+    ax_left.fill_between(driver_da.time, driver_da.values, where=driver_da.values >= 0, color='lightcoral', alpha=0.5)
+    ax_left.fill_between(driver_da.time, driver_da.values, where=driver_da.values < 0, color='lightblue', alpha=0.5)
+    
+    # === Plot rolling cumulative rainfall ===
+    ax_right1.plot(rainfall_sum.time, rainfall_sum.values,
+             linestyle='-', label=f'{window} {time_unit.capitalize()} Rolling Cumulative Sum of rainfall', alpha=0.5, color='#b3cde0', zorder=2)
+    
+    ax_right1.plot(rainfall_sum_above_threshold1.time, rainfall_sum_above_threshold1.values,
+             linestyle='-', label=f'Peak above {threshold1} mm', alpha=0.5, color='#011f4b', zorder=3)
+    
+    ax_right1.plot(rainfall_sum_above_threshold2.time, rainfall_sum_above_threshold2.values,
              linestyle='-', label=f'Peak above {threshold2} mm', alpha=0.5, color='maroon', zorder=4)
     
     
     # === Plot full time series of lake size with event labels ===    
-    ax3.plot(dea.time.values, dea.values,
+    ax_right2.plot(dea.time.values, dea.values,
                  color='grey', linestyle='', marker='o', markersize=8, alpha=0.4, zorder=1)
+        
+    for event in events:
+        event_sizes = dea.where(dea.dea_events == event, drop=True).dropna(dim='time')
+        ax_right2.plot(event_sizes.time, event_sizes, linestyle='--', marker='o', markersize=6,
+                     color=presentation_bom_colours[0], label=f'Event {int(event)}', zorder=5)
     
-    plot_dea_events(ds, ax3, zorder_plot=5, zorder_text=10)
+        label_size = event_sizes.where(event_sizes.dea_event_max, drop=True)
+        ax_right2.text(label_size.time, label_size + 3, f'Event {int(event)}',
+                     fontsize=20, ha='center', va='bottom',
+                     color=presentation_bom_colours[0], zorder=10)
     
     
     # === Add a horizontal line at threshold levels ===
-    ax2.axhline(y=threshold1, color='#03396c', linestyle='--')
-    ax2.axhline(y=threshold2, color='maroon', linestyle='--')
+    ax_right1.axhline(y=threshold1, color='#03396c', linestyle='--')
+    ax_right1.axhline(y=threshold2, color='maroon', linestyle='--')
     
     # === Axis Formatting ===
-    ax1.set_ylabel(enso_index_name, fontsize=20)
-    ax2.set_ylabel('128 day Cumulative Precipitation (mm/128 days)', fontsize=20)
-    ax3.set_ylabel('Lake Pixel Count', fontsize=20)
+    ax_left.set_ylabel(f'{driver.upper()} ({driver_index})', fontsize=20)
+    ax_right1.set_ylabel('128 day Cumulative Precipitation (mm/128 days)', fontsize=20)
+    ax_right2.set_ylabel('Lake Pixel Count', fontsize=20)
     
-    # Set y-ticks and y-tick labels for enso
-    ax1.set_yticks(np.arange(-3, 3.1, 1))
-    ax1.set_yticklabels([f"{int(x)}" for x in np.arange(-3, 3.1, 1)], fontsize=20)
+    # Set y-ticks and y-tick labels for driver
+    if driver == 'enso':
+        values = np.arange(-3, 3.1, 1)
+    elif driver == 'ipo':
+        values = np.arange(-0.6, 0.7, 0.2)
     
-    # Set y-ticks and y-tick labels for dea
-    ax3.set_yticks(np.arange(-750,751,250))
-    ax3.set_yticklabels(list(np.arange(-750,751,250)), fontsize=20)
-    
-    # Set y-ticks and y-tick labels for rain
-    ax2.set_yticks(np.arange(-1500,1501,500))
-    ax2.set_yticklabels(list(np.arange(-1500,1501,500)), fontsize=20)
-    
-    ax1.grid(True, which='major', axis='both') # Add grid to the background
-    ax1.xaxis.set_major_locator(mdates.YearLocator(grid_spacing))
-    ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
-    plt.setp(ax1.get_xticklabels(), rotation=90, ha='center', fontsize=20)
-    
-    # === Save figure ===
-    plt.savefig(f'{output_dir}/Fig8_{Lake}_FloodEvents_{window}{time_unit}_ENSO_{enso_index}_{start_date}.png', bbox_inches='tight')
-    plt.close()
-    
-
-def plot_rolling_sum_with_ipo(ds, start_date, window, time_unit, threshold1, threshold2, ipo_index):
-    if start_date=='1900':
-        grid_spacing=10
-    else:
-        grid_spacing=1
-
-    #Extract variables
-    rainfall_sum = ds['mean_gridded_rainfall_rolling_sum']
-    rainfall_sum_above_threshold1 = rainfall_sum.where(rainfall_sum[f'rolling_peak_above_{threshold1}'])
-    rainfall_sum_above_threshold2 = rainfall_sum.where(rainfall_sum[f'rolling_peak_above_{threshold2}'])
-    dea = ds['dea'].sel(lake_variable='Size')
-    ipo=lake_daily_1900_ds['ipo'].sel(ipo_indices=ipo_index).sel(time=slice(f"{start_date}-01-01", "2025-01-01"))
-    	
-    ### PLOT: timeseries of 128 day cumulative rainfall with SOI ###
-    fig = plt.figure(figsize=(40, 10))
-    ax1 = fig.add_subplot(111)
-    ax2 = ax1.twinx()
-    ax3 = ax1.twinx()
-    ax3.spines['right'].set_position(('outward', 120))
-    
-    # Fill the positive and negative areas with different colors
-    ax1.fill_between(ipo.time, ipo.values, where=ipo.values >= 0, color='lightcoral', alpha=0.5)
-    ax1.fill_between(ipo.time, ipo.values, where=ipo.values < 0, color='lightblue', alpha=0.5)
-    
-    # === Plot rolling cumulative rainfall ===
-    ax2.plot(rainfall_sum.time, rainfall_sum.values,
-             linestyle='-', label=f'{window} {time_unit.capitalize()} Rolling Cumulative Sum of rainfall', alpha=0.5, color='#b3cde0', zorder=2)
-    
-    ax2.plot(rainfall_sum_above_threshold1.time, rainfall_sum_above_threshold1.values,
-             linestyle='-', label=f'Peak above {threshold1} mm', alpha=0.5, color='#011f4b', zorder=3)
-    
-    ax2.plot(rainfall_sum_above_threshold2.time, rainfall_sum_above_threshold2.values,
-             linestyle='-', label=f'Peak above {threshold2} mm', alpha=0.5, color='maroon', zorder=4)
-    
-    
-    # === Plot full time series of lake size with event labels ===    
-    ax3.plot(dea.time.values, dea.values,
-                 color='grey', linestyle='', marker='o', markersize=8, alpha=0.4, zorder=1)
-    
-    plot_dea_events(ds, ax3, zorder_plot=5, zorder_text=10)
-    
-    
-    # === Add a horizontal line at threshold levels ===
-    ax2.axhline(y=threshold1, color='#03396c', linestyle='--')
-    ax2.axhline(y=threshold2, color='maroon', linestyle='--')
-    
-    # === Axis Formatting ===  	
-    ax3.set_ylabel('Lake Pixel Count', fontsize=20)
-    ax2.set_ylabel('128 day Cumulative Precipitation (mm/128 days)', fontsize=20)
-    ax1.set_ylabel(f'IPO ({ipo_index})', fontsize=20)
-    
-    # Set y-ticks and y-tick labels for ipo
-    values = np.arange(-0.6, 0.7, 0.2)
     labels = [f"{v:.1f}" for v in values]
-    ax1.set_yticks(values)
-    ax1.set_yticklabels(labels, fontsize=20)
-    
-    # Set y-ticks and y-tick labels for dea
-    ax3.set_yticks(np.arange(-750,751,250))
-    ax3.set_yticklabels(list(np.arange(-750,751,250)), fontsize=20)
-    
+    ax_left.set_yticks(values)
+    ax_left.set_yticklabels(labels, fontsize=20)
+   
     # Set y-ticks and y-tick labels for rain
-    ax2.set_yticks(np.arange(-1500,1501,500))
-    ax2.set_yticklabels(list(np.arange(-1500,1501,500)), fontsize=20)
+    ax_right1.set_yticks(np.arange(-1500,1501,500))
+    ax_right1.set_yticklabels(list(np.arange(-1500,1501,500)), fontsize=20)
+
+    # Set y-ticks and y-tick labels for dea
+    ax_right2.set_yticks(np.arange(-750,751,250))
+    ax_right2.set_yticklabels(list(np.arange(-750,751,250)), fontsize=20)
+        
+    ax_left.grid(True, which='major', axis='both') # Add grid to the background
+    ax_left.xaxis.set_major_locator(mdates.YearLocator(grid_spacing))
+    ax_left.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
+    plt.setp(ax_left.get_xticklabels(), rotation=90, ha='center', fontsize=20)
     
-    ax1.grid(True, which='major', axis='both') # Add grid to the background
-    ax1.xaxis.set_major_locator(mdates.YearLocator(grid_spacing))
-    ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
-    plt.setp(ax1.get_xticklabels(), rotation=90, ha='center', fontsize=20)
+
+def plot_rolling_sum_with_driver_subplots(ds_1900, driver, driver_index, window, time_unit, threshold1, threshold2):
+    ds_1987 = ds_1900.sel(time=slice("1987-01-01", ds_1900.time[-1]))
+
+    # Figure
+    fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(40, 20))  # 2 rows, 1 col
+    ax1_2 = axes[0].twinx()  # secondary y-axis for first row
+    ax1_3 = axes[0].twinx()  # secondary y-axis for first row
+    ax2_2 = axes[1].twinx()  # secondary y-axis for second row
+    ax2_3 = axes[1].twinx()  # secondary y-axis for second row
+    
+    # Plot using function
+    plot_rolling_sum_with_driver(axes[0], ax1_2, ax1_3, ds_1987, start_date='1987', driver=driver,  driver_index=driver_index, window=window, time_unit=time_unit, threshold1=threshold1, threshold2=threshold2)
+    plot_rolling_sum_with_driver(axes[1], ax2_2, ax2_3, ds_1900, start_date='1900', driver=driver,  driver_index=driver_index, window=window, time_unit=time_unit, threshold1=threshold1, threshold2=threshold2)
     
     # === Save figure ===
-    plt.savefig(f'{output_dir}/Fig8_{Lake}_FloodEvents_{window}{time_unit}_IPO_{ipo_index}_{start_date}.png', bbox_inches='tight')
-    plt.close() 
-
+    plt.savefig(f'{output_dir}/Fig8_{Lake}_FloodEvents_{window}days_{driver}_{driver_index}.png', bbox_inches='tight')
+    plt.close()
 
 
 #### ========= Functions: Plot formattting =========
@@ -1689,6 +1715,20 @@ def truncate_colormap(cmap, minval=0.2, maxval=1.0, n=256):
 Lake_mask_r005_file = f'{Lake}_mask_r005.nc'
 Lake_mask_r005_netcdf = xr.open_dataset(f'{input_dir}/{Lake_mask_r005_file}')
 Lake_mask_r005 = Lake_mask_r005_netcdf['Mask']
+
+# Finer Mask for plots: Duplicate each value 10 times in each direction for higher resolution
+REPEAT = 10
+Z = np.repeat(np.repeat(Lake_mask_r005.values, REPEAT, axis=0), REPEAT, axis=1)
+new_lon = np.linspace(Lake_mask_r005['lon'].values[0], Lake_mask_r005['lon'].values[-1], Z.shape[1])
+new_lat = np.linspace(Lake_mask_r005['lat'].values[0], Lake_mask_r005['lat'].values[-1], Z.shape[0])
+
+# give dims names that won't collide with your main ds dims
+lake_mask_fine_da = xr.DataArray(
+    Z,
+    coords={'lat': new_lat, 'lon': new_lon},
+    dims=('lat', 'lon'),
+    name='lake_mask_fine'
+)
 
 
 #-----------------------------------------------------------------------------------------------------------------------------------
@@ -1754,7 +1794,7 @@ lake_daily_1900_ds = filter_out_empty_stations(lake_daily_1900_ds, 'rainfall')
 
 #-----------------------------------------------------------------------------------------------------------------------------------
 ### Load NAus
-agcd_NT_daily_file = 'agcd_v1_precip_total_r005_daily_NAus_1900to2024.nc'
+agcd_NT_daily_file = 'agcd_v1_precip_total_r005_daily_NAus_1900to2024_masked.nc'
 agcd_NT_daily_ds = xr.open_dataset(f'{input_dir}/{agcd_NT_daily_file}')
 agcd_NT_daily_ds['time'] = agcd_NT_daily_ds.indexes['time'].normalize()
 agcd_NT_daily_da = agcd_NT_daily_ds['precip']
@@ -1879,27 +1919,11 @@ lake_daily_1900_ds['mean_gridded_rainfall_event_cum'].attrs.update({
     ),
     'units': 'mm'})
 
-#daily station
-lake_daily_1900_ds['station_rainfall_event_cum'] = cumulative_rainfall_per_event(lake_daily_1900_ds, 'station_rainfall')
-lake_daily_1900_ds['station_rainfall_event_cum'].attrs.update({
-    'long_name': 'Daily cumulative station rainfall during events',
-    'description': (
-        'Daily cumulative station based rainfall, starting from the first day of each identified event up to the day of peak lake size (maximum DEA). '
-        'The coordinates can be used to identify event number, peak day, and offset from the peak.'
-    ),
-    'units': 'mm'})
-
-
 ####  === Filter Event Cumulative Precip by Rate of Change ===
 lake_daily_1900_ds['mean_gridded_rainfall_event_cum_filtered'] = filter_cumulative_rainfall(lake_daily_1900_ds)
     
 
 #%% Analyse Data: Daily rolling cumulative dataset
-
-#Define variables
-window_size_daily = 112  # Define the rolling window size in days
-lower_threshold_daily = 600 # Define lower threshold
-higher_threshold_daily = 800 # Define higher threshold
 
 ## Loop through each segment defined by two troughs
 # Check if the segment of the rolling sum is above the lower or higher threshold
@@ -1959,12 +1983,7 @@ ax1.set_facecolor(presentation_bom_colours[4])
 ax1.pcolormesh(Lake_mask_r005.coords['lon'].values, Lake_mask_r005.coords['lat'].values, Lake_mask_r005.values, cmap=ListedColormap(['white', 'white']), transform=ccrs.PlateCarree(), zorder=2)
 
 # Plot lake masks as black contour lines
-# Duplicate each value 10 times in each direction for higher resolution
-Z = np.repeat(np.repeat(Lake_mask_r005.values, 10, axis=0), 10, axis=1)
-X = np.linspace(Lake_mask_r005.coords['lon'].values[0], Lake_mask_r005.coords['lon'].values[-1], Z.shape[1])
-Y = np.linspace(Lake_mask_r005.coords['lat'].values[0], Lake_mask_r005.coords['lat'].values[-1], Z.shape[0])
-    
-ax1.contour(X, Y, Z, colors='k', linewidths=1, transform=ccrs.PlateCarree())
+ax1.contour(lake_mask_fine_da.lon, lake_mask_fine_da.lat, lake_mask_fine_da.values, colors='k', linewidths=1, transform=ccrs.PlateCarree())
 
 # Extract station lat/lon and IDs
 rainfall_lats = lake_daily_1987_ds['rainfall_station_lat'].values
@@ -2038,7 +2057,7 @@ ax1.text(
 )
 
 # Save the plot as a PDF file and close the plot
-plt.savefig(f'{output_dir}/Fig1_{Lake}_map_stations.pdf', bbox_inches='tight')
+plt.savefig(f'{output_dir}/Fig1_{Lake}_map_stations.png', bbox_inches='tight')
 plt.close()
 
 
@@ -2067,162 +2086,128 @@ plot_cum_rainfall_with_threshold(ds=lake_daily_1900_ds, threshold=lower_threshol
 plot_cum_rainfall_with_threshold(ds=lake_daily_1900_ds, threshold=lower_threshold_daily, time_interval=f'{window_size_daily}_days', ranked='True')
     
 
-#%% Fig 5. Cumulative Plot: 6.4 Optimal Rolling-Sum Duration and Threshold Analysis (all Years)
+#%% Fig 5. Cumulative Plot: Optimal Rolling-Sum Duration and Threshold Analysis (all Years)
 
-threshold_analysis_plot(lake_daily_1987_ds, window_max= 208, threshold=600, time_unit='days')
+plot_threshold_analysis(lake_daily_1987_ds, window_max= 208, threshold=lower_threshold_daily, time_unit='days')
 
-#%% Fig 6. Rolling-Sum Plot: Daily and Monthly Rolling-Sum Rainfall (set/ variable window)
+#%% Fig 6. Rolling-Sum Plot: Daily and Monthly Rolling-Sum Rainfall (set/ variable window)   
 
-### PLOT: timeseries of daily cumulative rainfall ###
-plot_rolling_sum_window(lake_daily_1987_ds, '1987', window_size_daily, 'days', lower_threshold_daily, higher_threshold_daily)
-plot_rolling_sum_window(lake_daily_1900_ds, '1900', window_size_daily, 'days', lower_threshold_daily, higher_threshold_daily)
+### PLOT: timeseries of daily rolling-sum rainfall ###
+fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(40, 20))  # 2 rows, 1 col
 
-### PLOT: timeseries of 80-224 day cumulative rainfall ###
-plot_rolling_sum_variable_window(lake_daily_1900_ds, start_date='1900', time_unit='days', threshold=600, window_min=80, window_max=224)      
-plot_rolling_sum_variable_window(lake_daily_1987_ds, start_date='1987', time_unit='days', threshold=600, window_min=80, window_max=224)      
+# Twin axes
+ax1_2 = axes[0].twinx()  # secondary y-axis for first row
+ax2_2 = axes[1].twinx()  # secondary y-axis for second row
 
+# Plot using function
+plot_rolling_sum_window(axes[0], ax1_2, lake_daily_1987_ds, start_date='1987', window=window_size_daily, time_unit='days', threshold1=lower_threshold_daily, threshold2=higher_threshold_daily)
+plot_rolling_sum_window(axes[1], ax2_2, lake_daily_1900_ds, start_date='1900', window=window_size_daily, time_unit='days', threshold1=lower_threshold_daily, threshold2=higher_threshold_daily)
 
-#%% Fig 7. Map Plot: NT Map 112 day sum Compostite
+#Legend
+axes[0].legend(loc='upper left', bbox_to_anchor=(0, 1), fontsize=20)
 
-#only run once
-# Make Landmask from Global land polygons (Natural Earth ~1:110m)
-land = regionmask.defined_regions.natural_earth_v5_0_0.land_50
-land_mask = land.mask(agcd_NT_daily_da.isel(time=0)).notnull()
-agcd_NT_daily_masked_da = agcd_NT_daily_da.where(land_mask)
-
-
-event = False
-start_date ='1987'
-end_date = '2024'
-
-# Dates during event/ non-event -> NT subset
-dates_window = lake_daily_1900_ds.cum_window_112_days.dropna(dim='time').time
-start_date_1987 = dates_window.where(dates_window['cum_window_112_days'] == 1, drop=True).sel(time=slice('1987', None))[0]
-dates_post1987 = dates_window.sel(time=dates_window.time >= start_date_1987)
-dates_pre1987  = dates_window.sel(time=dates_window.time <  start_date_1987)
-
-if event:
-    event_suffix = 'event'
-    dates_subset_post1987 = dates_post1987.where(~dates_post1987.cum_window_is_event.isnull(), drop=True)
-    if start_date =='1900':
-        dates_subset_pre1987 = dates_pre1987.where(dates_pre1987['rolling_peak_above_600'], drop=True)
-        if end_date == '1987':
-            dates_subset = dates_subset_pre1987
-        elif end_date == '2024':
-            dates_subset = xr.concat([dates_subset_pre1987, dates_subset_post1987], dim="time")    
-    
-    elif start_date =='1987':
-        dates_subset = dates_subset_post1987 
-        end_date = '2024'
-
-else:    
-    event_suffix = 'non_event'
-    dates_subset_post1987 = dates_post1987.where(dates_post1987.cum_window_is_event.isnull(), drop=True)
-    
-    if start_date =='1900':
-        dates_subset_pre1987 = dates_pre1987.where(~dates_pre1987['rolling_peak_above_600'], drop=True)
-        if end_date == '1987':
-            dates_subset = dates_subset_pre1987
-        elif end_date == '2024':
-            dates_subset = xr.concat([dates_subset_pre1987, dates_subset_post1987], dim="time")
-    
-    elif start_date =='1987':
-        dates_subset = dates_subset_post1987 
-        end_date = '2024'
-
-NT_window_subset = agcd_NT_daily_masked_da.sel(time=dates_subset)
-
-
-# Mean of all events/ non-events
-NT_window_list = []
-for i in range(int(NT_window_subset.time.size/window_size_daily)):
-    NT_window_slice = NT_window_subset.isel(time=slice(window_size_daily*i, window_size_daily*(i+1)))
-    NT_window_slice_sum = NT_window_slice.sum(dim='time')
-    NT_window_list.append(NT_window_slice_sum)
-NT_window_subset_mean = xr.concat(NT_window_list, dim="years").mean(dim="years")
-
-
-# PLOT
-fig = plt.figure(figsize=(40, 40))
-ax1 = fig.add_subplot(1, 1, 1, projection=ccrs.PlateCarree())
-
-ax1.coastlines()  # Add coastlines
-
-# Plot Rainfall
-im0 = ax1.pcolormesh(
-    NT_window_subset_mean.coords['lon'].values,
-    NT_window_subset_mean.coords['lat'].values,
-    NT_window_subset_mean.values,
-    cmap='Blues',
-    norm=Normalize(vmin=0, vmax=600),
-    transform=ccrs.PlateCarree()
-)
-
-# Lake mask
-Z = np.repeat(np.repeat(Lake_mask_r005.values, 10, axis=0), 10, axis=1)
-X = np.linspace(Lake_mask_r005.coords['lon'].values[0], Lake_mask_r005.coords['lon'].values[-1], Z.shape[1])
-Y = np.linspace(Lake_mask_r005.coords['lat'].values[0], Lake_mask_r005.coords['lat'].values[-1], Z.shape[0])
-ax1.contour(X, Y, Z, colors='k', linewidths=0.75, transform=ccrs.PlateCarree())
-
-
-# Colorbar
-cb1 = fig.colorbar(im0, fraction=0.025, pad=0.03, ax=ax1, orientation='horizontal')
-cb1.set_label(f'Rainfall ({lake_daily_1987_ds['gridded_rainfall'].units}/ 112 days)', fontsize=30)
-cb1.set_ticks(np.linspace(0, 600, 7))
-cb1.ax.tick_params(labelsize=30)
-cb1.outline.set_color('lightgray')    
-    
-# Add gridlines
-gl = ax1.gridlines(crs=ccrs.PlateCarree(), draw_labels=True,
-              linewidth=0.5, color='gray', alpha=0.5, linestyle='--')
-gl.top_labels = False
-gl.right_labels = False
-gl.xlocator = LongitudeLocator()
-gl.ylocator = LatitudeLocator()
-gl.xformatter = LongitudeFormatter()
-gl.yformatter = LatitudeFormatter()
-gl.xlabel_style = {'size': 30, 'color': 'black'}
-gl.ylabel_style = {'size': 30, 'color': 'black'}
-
-# Save figure
-plt.savefig(f'{output_dir}/Fig7_NT_maps/NAus_map_window_{event_suffix}_mean_{start_date}_{end_date}.png', bbox_inches='tight')
+# === Save figure ===
+plt.savefig(f'{output_dir}/Fig6_{Lake}_RollingSum_window-{window_size_daily}days.png', bbox_inches='tight')
 plt.close()
 
 
+
+### PLOT: timeseries of 80-224 day rolling-sum rainfall ###
+lower_window = 80
+higher_window = 224
+
+fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(40, 20))  # 2 rows, 1 col
+
+# Twin axes
+ax1_2 = axes[0].twinx()  # secondary y-axis for first row
+ax2_2 = axes[1].twinx()  # secondary y-axis for second row
+
+# Plot using function
+plot_rolling_sum_variable_window(axes[0], ax1_2, lake_daily_1987_ds, start_date='1987', time_unit='days', threshold=lower_threshold_daily, window_min=lower_window, window_max=higher_window)      
+plot_rolling_sum_variable_window(axes[1], ax2_2, lake_daily_1900_ds, start_date='1900', time_unit='days', threshold=lower_threshold_daily, window_min=lower_window, window_max=higher_window)      
+
+#Legend
+lines = axes[0].get_lines()  # list of all Line2D objects on this axis
+last_two_lines = lines[-2:]
+axes[0].legend(handles=last_two_lines, labels=[f'{lower_window}-{higher_window} Day Rolling Sum of Rainfall', f'Peak above {lower_threshold_daily} mm'], loc='upper left', bbox_to_anchor=(0, 1), fontsize=20)
+
+# === Save figure ===
+plt.savefig(f'{output_dir}/Fig6_{Lake}_RollingSum_window_{lower_window}-{higher_window}_days.png', bbox_inches='tight')
+plt.close()
+
+
+#%% Fig 7. Map Plot: NT Map 112 day sum Compostite
+ 
+NT_daily_rainfall_window_sum_da = window_sum_vectorised(ds=lake_daily_1900_ds, da=agcd_NT_daily_da, window_size=window_size_daily)
+
+#PLOT
+fig, axes = plt.subplots(nrows=3, ncols=2, figsize=(30, 18), subplot_kw={"projection": ccrs.PlateCarree()})
+axes = axes.flatten()
+
+rows = ["1900\n–\n2024", "1900\n–\n1987", "1987\n–\n2024"]
+columns = ["Non-Event Years", "Event Years"]
+
+plot_args = [
+    ('1900','2024',False),
+    ('1900','2024',True),
+    ('1900','1987',False),
+    ('1900','1987',True),
+    ('1987','2024',False),
+    ('1987','2024',True)
+]
+
+for ax, (start, end, ev) in zip(axes, plot_args):
+    im0 = plot_NT_event_map(ax, NT_daily_rainfall_window_sum_da, start_date=start, end_date=end, lake_mask=lake_mask_fine_da, event=ev)
+        
+# Colorbar
+#fig.subplots_adjust(bottom=0.2)
+cbar_ax = fig.add_axes([0.25, 0.05, 0.5, 0.02])  # [left, bottom, width, height]
+cbar_ax.set_frame_on(False)  # Hide the rectangle
+cb1 = fig.colorbar(im0, cax=cbar_ax, orientation='horizontal')
+cb1.set_label(f'Rainfall ({lake_daily_1987_ds['gridded_rainfall'].units}/ 112 days)', fontsize=10)
+cb1.set_ticks(np.linspace(0, 600, 7))
+cb1.ax.tick_params(labelsize=10)
+cb1.outline.set_color('lightgray')    
+    
+# Add row/column labels
+for i, ax in enumerate(axes):
+    r = i // 2
+    c = i % 2
+    if c == 0:  # leftmost column → row label
+        ax.text(-0.05, 0.5, rows[r], transform=ax.transAxes,
+                fontsize=14, fontweight='bold', va='center', ha='right', multialignment='center')
+    if r == 0:  # top row → column label
+        ax.text(0.5, 1.05, columns[c], transform=ax.transAxes,
+                fontsize=14, fontweight='bold', va='bottom', ha='center')
+
+# Save figure
+plt.savefig(f'{output_dir}/Fig7_LW_NAus_map.png', bbox_inches='tight')
+plt.close()
+
+
+
 #%% Fig 8. Driver Plot: 8.2 ENSO & IPO with Rolling Sum
-
+    
 # === ENSO ===
-enso_indices = lake_daily_1900_ds['enso'].enso_indices.values
-
 #Nino 3.4 (ERSST)
-plot_rolling_sum_with_enso(lake_daily_1987_ds, '1987', window_size_daily, 'days', lower_threshold_daily, higher_threshold_daily, enso_indices[0], 'Nino 3.4 (ERSST)')
-plot_rolling_sum_with_enso(lake_daily_1900_ds, '1900', window_size_daily, 'days', lower_threshold_daily, higher_threshold_daily, enso_indices[0], 'Nino 3.4 (ERSST)')
+plot_rolling_sum_with_driver_subplots(lake_daily_1900_ds, driver='enso', driver_index='Nino 3.4 (ERSST)', window=window_size_daily, time_unit='days', threshold1=lower_threshold_daily, threshold2=higher_threshold_daily)
 
 #Nino 3.4 (HadISST)
-plot_rolling_sum_with_enso(lake_daily_1987_ds, '1987', window_size_daily, 'days', lower_threshold_daily, higher_threshold_daily, enso_indices[1], 'Nino 3.4 (HadISST)')
-plot_rolling_sum_with_enso(lake_daily_1900_ds, '1900', window_size_daily, 'days', lower_threshold_daily, higher_threshold_daily, enso_indices[1], 'Nino 3.4 (HadISST)')
+plot_rolling_sum_with_driver_subplots(lake_daily_1900_ds, driver='enso', driver_index='Nino 3.4 (HadISST)', window=window_size_daily, time_unit='days', threshold1=lower_threshold_daily, threshold2=higher_threshold_daily)
 
 #Oni
-plot_rolling_sum_with_enso(lake_daily_1987_ds, '1987', window_size_daily, 'days', lower_threshold_daily, higher_threshold_daily, enso_indices[2], 'Oni')
-plot_rolling_sum_with_enso(lake_daily_1900_ds, '1900', window_size_daily, 'days', lower_threshold_daily, higher_threshold_daily, enso_indices[2], 'Oni')
+plot_rolling_sum_with_driver_subplots(lake_daily_1900_ds, driver='enso', driver_index='ONI', window=window_size_daily, time_unit='days', threshold1=lower_threshold_daily, threshold2=higher_threshold_daily)
 
 
 # === IPO ===
-ipo_indices = lake_daily_1900_ds['ipo'].ipo_indices.values
-
 #HadISST
-plot_rolling_sum_with_ipo(lake_daily_1987_ds, '1987', window_size_daily, 'days', lower_threshold_daily, higher_threshold_daily, ipo_indices[0])
-plot_rolling_sum_with_ipo(lake_daily_1900_ds, '1900', window_size_daily, 'days', lower_threshold_daily, higher_threshold_daily, ipo_indices[0])
+plot_rolling_sum_with_driver_subplots(lake_daily_1900_ds, driver='ipo', driver_index='HadISST 1.1', window=window_size_daily, time_unit='days', threshold1=lower_threshold_daily, threshold2=higher_threshold_daily)
 
 #ERSST
-plot_rolling_sum_with_ipo(lake_daily_1987_ds, '1987', window_size_daily, 'days', lower_threshold_daily, higher_threshold_daily, ipo_indices[1])
-plot_rolling_sum_with_ipo(lake_daily_1900_ds, '1900', window_size_daily, 'days', lower_threshold_daily, higher_threshold_daily, ipo_indices[1])
+plot_rolling_sum_with_driver_subplots(lake_daily_1900_ds, driver='ipo', driver_index='ERSST V5', window=window_size_daily, time_unit='days', threshold1=lower_threshold_daily, threshold2=higher_threshold_daily)
 
 #COBE
-plot_rolling_sum_with_ipo(lake_daily_1987_ds, '1987', window_size_daily, 'days', lower_threshold_daily, higher_threshold_daily, ipo_indices[2])
-plot_rolling_sum_with_ipo(lake_daily_1900_ds, '1900', window_size_daily, 'days', lower_threshold_daily, higher_threshold_daily, ipo_indices[2])  
-
-    
+plot_rolling_sum_with_driver_subplots(lake_daily_1900_ds, driver='ipo', driver_index='COBE', window=window_size_daily, time_unit='days', threshold1=lower_threshold_daily, threshold2=higher_threshold_daily)
 
 
 
