@@ -1,9 +1,48 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Created on Mon Jul  7 11:02:46 2025
+Correct Lake Mask Dimensions and Coordinate Order
 
-@author: leasophiegrunau
+Author:      Lea Sophie Grunau  
+Created on:  2025-07-07
+
+Description:
+    Corrects dimensional inconsistencies in lake mask NetCDF files by ensuring
+    coordinates are in increasing order and dimensions follow standard conventions.
+    Also converts mask to binary format and rounds coordinates for consistency.
+
+This script:
+    • Reverses coordinate axes if they are in decreasing order
+    • Reorders dimensions to standard order (time, lat, lon)
+    • Converts mask values to binary integer format (0/1)
+    • Rounds lat/lon coordinates to 2 decimal places
+    • Saves corrected mask with '_reversed' suffix
+
+Dependencies:
+    - Python 3.x
+    - xarray, numpy
+    - netCDF4 (for xarray backend)
+    - Input file: {Lake}_mask_{grid}.nc
+
+Note: 
+    Input directory path must be adapted to your system.
+
+Usage:
+    python correct_mask_dim.py --Lake <lake_short_code>
+    
+    Example:
+        python correct_mask_dim.py --Lake LW
+    
+    Output:
+        {Lake}_mask_{grid}_reversed.nc
+
+Common Issues Fixed:
+    - Southern hemisphere data with lat coordinates in decreasing order
+    - Non-standard dimension ordering (e.g., lon-lat-time instead of time-lat-lon)
+    - Float precision issues in coordinate values
+    - Non-binary mask values
 """
 
 import argparse
