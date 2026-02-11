@@ -72,6 +72,7 @@ import glob
 import pandas as pd
 import xarray as xr
 import numpy as np
+from scipy import stats
 from scipy.signal import find_peaks
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap, ListedColormap, Normalize
@@ -82,6 +83,7 @@ from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 import cartopy.crs as ccrs
 from cartopy.mpl.ticker import (LongitudeFormatter, LatitudeFormatter,
                                 LongitudeLocator, LatitudeLocator)
+import cartopy.feature as cfeature
 
 
 # ========== CONFIGURATION ==========
@@ -111,7 +113,8 @@ Lake_mask_r005_file = f'{input_dir}/{Lake}_mask_r005.nc'
 agcd_daily_file = f'{input_dir}/agcd_v1_precip_total_r005_daily_{Lake}_1900to2024.nc'
 runoff_stations_file = f'{input_dir}/{Lake}_daily_station_runoff.nc'
 rainfall_stations_file = f'{input_dir}/{Lake}_daily_station_rainfall.nc'
-agcd_NT_daily_file = f'{input_dir}/agcd_v1_precip_total_r005_daily_NAus_1900to2024_masked.nc'
+agcd_NT_daily_file = f'{input_dir}/agcd_v1_precip_total_r005_daily_NAus_1900to2024.nc'
+NT_mask_r005_file = f'{input_dir}/NT_mask_r005.nc'
 dea_file = f'{input_dir}/{Lake}_dea.nc'
 enso_file = f'{input_dir}/ClimaticDrivers/enso_*.nc'
 ipo_file = f'{input_dir}/ClimaticDrivers/tpi.timeseries*.txt'
@@ -125,14 +128,14 @@ ds_attrs = {
         'long_name': {
             'gridded_catchment_rainfall': 'Daily gridded catchment rainfall',
             'mean_catchment_rainfall': 'Daily mean catchment rainfall',
-            'calculate_cumulative_rainfall_per_event': 'Daily cumulative rainfall per event',
+            'cumulative_rainfall_per_event': 'Daily cumulative rainfall per event',
             'rolling_sum_of_mean_catchment_rainfall': f'Daily rolling sum of mean catchment rainfall ({window_size_daily}-days)',
             'cumulative_rainfall_up_to_peaks': f'Daily cumulative rainfall up to peaks of {window_size_daily}-day windows'
         },
         'description': {
             'gridded_catchment_rainfall': f'Daily gridded catchment rainfall over {Lake}.',
             'mean_catchment_rainfall': f'Daily mean catchment rainfall over {Lake}.',
-            'calculate_cumulative_rainfall_per_event': (
+            'cumulative_rainfall_per_event': (
                 f'Daily cumulative rainfall per event, based on mean catchment rainfall over {Lake}. '
                 f'Starting from the first day of each identified event up to the day of peak lake size. '
                 f'Coordinates identify event number, peak day, and offset from peak.'
@@ -853,7 +856,7 @@ def filter_cumulative_rainfall(ds):
     ----------
     ds : xarray.Dataset
         Dataset containing:
-            - 'calculate_cumulative_rainfall_per_event': cumulative rainfall per event
+            - 'cumulative_rainfall_per_event': cumulative rainfall per event
             - 'mean_catchment_rainfall': daily rainfall
             - 'dea_events': event ID labels
             - 'dea_offset': time offset relative to event peak
@@ -877,7 +880,7 @@ def filter_cumulative_rainfall(ds):
     """
     # Validate required variables
     required_vars = [
-        'calculate_cumulative_rainfall_per_event',
+        'cumulative_rainfall_per_event',
         'mean_catchment_rainfall',
         'dea_events',
         'dea_offset'
@@ -887,7 +890,7 @@ def filter_cumulative_rainfall(ds):
         raise KeyError(f'Required variables missing from dataset: {", ".join(missing)}')
     
     # Extract variables
-    precip_cum = ds['calculate_cumulative_rainfall_per_event']
+    precip_cum = ds['cumulative_rainfall_per_event']
     precip = ds['mean_catchment_rainfall']
     
     # Create mask for valid rainfall periods (above threshold and within rise period)
@@ -1496,7 +1499,93 @@ def calculate_sum_over_given_windows(ds, da, window_size):
 
 
 #### ========= Functions: Plot data =========
-def plot_catchment_map(ds, timeframe, lake_mask_coarse, lake_mask_fine):
+def plot_EA_map(FigNo, lake_mask_fine):
+    """
+    Plot map of Eastern Australia with catchment mask.
+    
+    Parameters
+    ----------
+    FigNo : str
+        figure number (e.g., 'Fig1').
+    lake_mask_fine : xarray.DataArray
+        Fine resolution lake mask for boundary contour.
+    
+    Output
+    ------
+    Saves PNG: '{output_dir}/{FigNo}_{Lake}_EA_Map.png'
+    """
+           
+    # ========== FILENAME CONSTRUCTION ==========
+    filename_parts = [FigNo, Lake, 'EA_Map']
+    file_name = '_'.join(filename_parts)
+    
+    
+    # ========== PLOTTING CONFIGURATION ==========
+    # Lake mask styling
+    lake_contour_color = 'k'
+    lake_contour_width = 1
+    
+    # Gridline styling
+    gridline_config = {
+        'linewidth': 0.5,
+        'color': 'white',
+        'alpha': 0.7,
+        'linestyle': '--',
+        'label_fontsize': 15
+    }
+    
+
+    # ========== CREATE FIGURE AND PLOT ==========
+    fig = plt.figure(figsize=(15, 17))
+    ax1 = fig.add_subplot(1, 1, 1, projection=ccrs.PlateCarree())
+    
+    # Add coastlines
+    ax1.coastlines()
+    
+    # Set longitude and latitude limits (xmin, xmax, ymin, ymax)
+    ax1.set_extent([130, 155, -40, -10], crs=ccrs.PlateCarree())
+
+    # Add land feature to the map
+    land = cfeature.NaturalEarthFeature(category='physical', name='land', scale='50m', facecolor='white')
+    ax1.add_feature(land, edgecolor='black', linewidth=2)
+
+    # Plot lake masks as black contour lines
+    ax1.contour(
+        lake_mask_fine.lon, lake_mask_fine.lat, lake_mask_fine.values,
+        colors=lake_contour_color, linewidths=lake_contour_width,
+        transform=ccrs.PlateCarree(), zorder=2
+    )
+    
+    
+    # ========== FORMAT MAP ==========
+    # Add gridlines
+    gl = ax1.gridlines(
+        draw_labels=True,
+        crs=ccrs.PlateCarree(),
+        linewidth=gridline_config['linewidth'],
+        color=gridline_config['color'],
+        alpha=gridline_config['alpha'],
+        linestyle=gridline_config['linestyle']
+    )
+    
+    gl.xlocator = LongitudeLocator()
+    gl.ylocator = LatitudeLocator()
+    gl.xformatter = LongitudeFormatter()
+    gl.yformatter = LatitudeFormatter()
+
+    # Show only left and bottom labels
+    gl.bottom_labels = False
+    gl.right_labels = False
+    gl.xlabel_style = {'size': gridline_config['label_fontsize']}
+    gl.ylabel_style = {'size': gridline_config['label_fontsize']}
+    
+       
+    # ========== SAVE FIGURE ==========
+    plt.savefig(f'{output_dir}/{file_name}.png', bbox_inches='tight')
+    plt.close()
+    
+    
+def plot_catchment_map(FigNo, ds, timeframe, lake_mask_coarse, lake_mask_fine):
     """
     Plot map showing rainfall and runoff station locations with lake boundary.
     
@@ -1506,6 +1595,8 @@ def plot_catchment_map(ds, timeframe, lake_mask_coarse, lake_mask_fine):
     
     Parameters
     ----------
+    FigNo : str
+        figure number (e.g., 'Fig1').
     ds : xarray.Dataset
         Dataset containing:
             - 'rainfall_station', 'rainfall_station_lat', 'rainfall_station_lon', 'rainfall_station_name'
@@ -1519,7 +1610,7 @@ def plot_catchment_map(ds, timeframe, lake_mask_coarse, lake_mask_fine):
     
     Output
     ------
-    Saves PNG: '{output_dir}/Fig1_{Lake}_Catchment_Map.png'
+    Saves PNG: '{output_dir}/{FigNo}_{Lake}_Catchment_Map.png'
     
     Raises
     ------
@@ -1557,7 +1648,7 @@ def plot_catchment_map(ds, timeframe, lake_mask_coarse, lake_mask_fine):
     
     
     # ========== FILENAME CONSTRUCTION ==========
-    filename_parts = [Lake, 'Catchment_Map']
+    filename_parts = [FigNo, Lake, 'Catchment_Map']
     file_name = '_'.join(filename_parts)
     
     
@@ -1701,24 +1792,25 @@ def plot_catchment_map(ds, timeframe, lake_mask_coarse, lake_mask_fine):
         bbox=textbox_config['box_props'],
         zorder=5
     )
-    
-    
+       
     # ========== SAVE FIGURE ==========
-    plt.savefig(f'{output_dir}/Fig1_{file_name}.png', bbox_inches='tight')
+    plt.savefig(f'{output_dir}/{file_name}.png', bbox_inches='tight')
     plt.close()
     
 
-def plot_dea_timeseries(ds, timeframe, time_unit_lake, hydro_type=None, time_unit_data=None, 
-                        plot_mean=False, plot_station=False, peaks=False):
+def plot_dea_timeseries(FigNo, ds, timeframe, time_unit_lake, hydro_type=None, time_unit_data=None, 
+                        plot_mean=False, plot_station=False):
     """
     Plot DEA lake size time series with flood events and optional hydrological data.
     
     Creates a time series showing lake surface area from DEA with highlighted flood
     events. Can optionally overlay gridded mean or station rainfall/runoff data on
-    a secondary y-axis, with optional highlighting of rainfall peaks.
+    a secondary y-axis.
     
     Parameters
     ----------
+    FigNo : str
+        figure number (e.g., 'Fig1').
     ds : xarray.Dataset
         Dataset containing 'dea' (lake size) and 'dea_events'.
     timeframe : dict
@@ -1733,12 +1825,10 @@ def plot_dea_timeseries(ds, timeframe, time_unit_lake, hydro_type=None, time_uni
         If True, overlay gridded mean catchment data.
     plot_station : bool, default False
         If True, overlay individual station observations.
-    peaks : bool, default False
-        If True, highlight rainfall peaks (only valid for monthly rainfall with plot_mean=True).
     
     Output
     ------
-    Saves PNG: '{output_dir}/Fig2_{Lake}_FloodEvents-{time_unit_lake}[_hydro_info].png'
+    Saves PNG: '{output_dir}/{FigNo}_{Lake}_FloodEvents-{time_unit_lake}[_hydro_info].png'
     
     Raises
     ------
@@ -1772,10 +1862,6 @@ def plot_dea_timeseries(ds, timeframe, time_unit_lake, hydro_type=None, time_uni
     if (plot_mean or plot_station) and time_unit_data not in ['daily', 'monthly']:
         raise ValueError(f'time_unit_data must be "daily" or "monthly", got "{time_unit_data}"')
     
-    # Validate peak highlighting requirements
-    if peaks and not (plot_mean and hydro_type == 'rainfall' and time_unit_data == 'monthly'):
-        raise ValueError('Peaks can only be highlighted for monthly rainfall with plot_mean=True')
-    
     
     # ========== DATA PREPARATION ==========
     # Subset to timeframe and filter empty stations
@@ -1807,22 +1893,17 @@ def plot_dea_timeseries(ds, timeframe, time_unit_lake, hydro_type=None, time_uni
         
         if plot_mean:
             hydro_data['mean'] = source_ds[f'mean_catchment_{hydro_type}']
-            if peaks:
-                hydro_data['peaks'] = find_rainfall_peaks_near_lake_peaks(trimmed_ds, percentile=0.8)
         
         if plot_station:
             hydro_data['station'] = source_ds[f'station_{hydro_type}']
     
     
     # ========== FILENAME CONSTRUCTION ==========
-    filename_parts = [Lake, f'FloodEvents-{time_unit_lake}']
+    filename_parts = [FigNo, Lake, f'FloodEvents-{time_unit_lake}']
     
     # Add hydrological data information
     if plot_mean or plot_station:
-        if peaks:
-            filename_parts.append('RainfallPeaks-monthly')
-        else:
-            filename_parts.append(f'{hydro_type.capitalize()}-{time_unit_data}')
+        filename_parts.append(f'{hydro_type.capitalize()}-{time_unit_data}')
         
         if plot_mean:
             filename_parts.append('mean')
@@ -1836,20 +1917,14 @@ def plot_dea_timeseries(ds, timeframe, time_unit_lake, hydro_type=None, time_uni
     # Colors for multiple stations
     blue_colors = ['#0000FF', '#00008B', '#4169E1', '#6495ED', '#87CEFA',
                    '#4682B4', '#5F9EA0', '#7B68EE', '#87CEEB', '#ADD8E6']
-    
+    mean_colour = 'maroon'
+   
     # Determine plot style for hydrological data
     if plot_mean or plot_station:
         if time_unit_data == 'daily':
             plot_style_hydro = {'linestyle': '', 'marker': 'o', 'markersize': 6}
         else:  # monthly
             plot_style_hydro = {'linestyle': '-', 'marker': '', 'markersize': 0}
-    
-    # Special styling for peaks
-    if peaks:
-        plot_style_hydro = {'linestyle': '--', 'marker': '', 'markersize': 0}
-        mean_colour = blue_colors[2]
-    else:
-        mean_colour = 'maroon'
     
     # Configure labels
     labels = {}
@@ -1885,17 +1960,6 @@ def plot_dea_timeseries(ds, timeframe, time_unit_lake, hydro_type=None, time_uni
             zorder=3,
             **plot_style_hydro
         )
-        
-        if peaks:
-            # Highlight rainfall peaks
-            axis_hydro.plot(
-                hydro_data['peaks'].time.values,
-                hydro_data['peaks'].values,
-                linestyle='', marker='o', markersize=8,
-                label='Catchment Rainfall Peaks',
-                color='maroon',
-                zorder=4
-            )
     
     if plot_station:
         # Plot individual station time series
@@ -1961,11 +2025,261 @@ def plot_dea_timeseries(ds, timeframe, time_unit_lake, hydro_type=None, time_uni
     
     
     # ========== SAVE FIGURE ==========
-    plt.savefig(f'{output_dir}/Fig2_{file_name}.png', bbox_inches='tight')
+    plt.savefig(f'{output_dir}/{file_name}.png', bbox_inches='tight')
     plt.close()    
 
+
+def plot_dea_indices(FigNo, ds, timeframe, time_unit_lake, index):
+    """
+    Plot Rainfall Indices DEA lake size time series with flood events.
     
-def plot_cumulative_rainfall_events(ds, timeframe, magnitude=False, filtered=False):
+    Creates a time series showing rainfall indices and lake surface area from DEA
+    with highlighted flood events.
+    
+    Parameters
+    ----------
+    FigNo : str
+        figure number (e.g., 'Fig1').
+    ds : xarray.Dataset
+        Dataset containing 'dea' (lake size) and 'dea_events'.
+    timeframe : dict
+        Dictionary with 'start' and 'end' keys containing year strings.
+    time_unit_lake : {'daily', 'monthly'}
+        Time resolution for lake data.
+    index : str
+        Type of index to plot. Options:
+        - 'mm': Plot all mm-based indices combined
+        - 'days': Plot all days-based indices combined
+        - Individual index names: 'monthly_total', 'Rx5day', 'SDII',
+          'R40mm', 'R99p', 'CWD'
+
+    Output
+    ------
+    Saves PNG: '{output_dir}/{FigNo}_{Lake}_FloodEvents-{time_unit_lake}[_index_info].png'
+    
+    Raises
+    ------
+    KeyError
+        If required variables are missing from dataset.
+    ValueError
+        If time units or index are invalid.
+    
+    Notes
+    -----
+    The function automatically resamples to monthly resolution when needed by either
+    lake or hydrological data. Station data is filtered to remove stations with no
+    data in the specified timeframe.
+    """
+    # ========== VALIDATE INPUTS ==========
+    # Check required variables
+    required_vars = ['dea', 'dea_events', 'mean_catchment_rainfall']
+
+    missing_vars = [v for v in required_vars if v not in ds.data_vars and v not in ds.coords]
+    if missing_vars:
+        raise KeyError(f'Required variables missing from dataset: {", ".join(missing_vars)}')
+    
+    # Validate time units
+    if time_unit_lake not in ['daily', 'monthly']:
+        raise ValueError(f'time_unit_lake must be "daily" or "monthly", got "{time_unit_lake}"')
+    
+    # Define available indices
+    mm_indices = ['monthly_total', 'Rx5day', 'SDII']
+    days_indices = ['R40mm', 'R99p', 'CWD']
+    all_indices = mm_indices + days_indices
+    
+    # Validate index parameter
+    valid_options = ['mm', 'days'] + all_indices
+    if index not in valid_options:
+        raise ValueError(f'index must be one of {valid_options}, got "{index}"')
+    
+    
+    # ========== DATA PREPARATION ==========
+    # Subset to timeframe and filter empty stations
+    trimmed_ds = ds.sel(time=slice(timeframe['start'], timeframe['end']))
+    
+    # Determine if monthly resampling is needed
+    needs_monthly_lake = (time_unit_lake == 'monthly')
+    needs_monthly_hydro = (index == 'mm' or index in mm_indices)
+    needs_monthly = needs_monthly_lake or needs_monthly_hydro
+    
+    # Resample if needed
+    monthly_ds = resample_lake_dataset_to_monthly(trimmed_ds) if needs_monthly else None
+    
+    # Extract lake size data
+    if time_unit_lake == 'daily':
+        lake_size = trimmed_ds['dea'].sel(lake_variable='Size')
+    else:
+        lake_size = monthly_ds['dea'].sel(lake_variable='Size')
+    
+    # Extract event IDs
+    events = np.unique(trimmed_ds['dea_events'].dropna(dim='time').values)
+    
+    # Extract hydrological data
+    hydro_data = {}
+    rainfall = trimmed_ds.mean_catchment_rainfall
+    
+    # Determine which indices to calculate
+    indices_to_calc = []
+    if index == 'mm':
+        indices_to_calc = mm_indices
+    elif index == 'days':
+        indices_to_calc = days_indices
+    else:
+        indices_to_calc = [index]
+    
+    # Calculate required indices
+    for idx in indices_to_calc:
+        if idx == 'monthly_total':
+            hydro_data['monthly_total'] = monthly_ds.mean_catchment_rainfall
+            peaks = find_rainfall_peaks_near_lake_peaks(monthly_ds, percentile=0.8)
+                
+        elif idx == 'Rx5day':
+            rx5day_rolling = rainfall.rolling(time=5, center=False).sum()
+            hydro_data['Rx5day'] = rx5day_rolling.resample(time='ME').max(dim='time')
+        
+        elif idx == 'SDII':
+            wet_days = rainfall >= 1
+            total_wet_precip = rainfall.where(wet_days).resample(time='ME').sum(dim='time')
+            n_wet_days = wet_days.resample(time='ME').sum(dim='time')
+            hydro_data['SDII'] = total_wet_precip / n_wet_days.where(n_wet_days > 0)
+            hydro_data['SDII'] = hydro_data['SDII'].fillna(0)
+                
+        elif idx == 'R40mm':
+            heavy_days = rainfall > 40
+            hydro_data['R40mm'] = heavy_days.resample(time='ME').sum(dim='time')
+                
+        elif idx == 'R99p':
+            p99 = rainfall.quantile(0.99, dim='time')
+            extreme_days = rainfall > p99
+            hydro_data['R99p'] = extreme_days.resample(time='ME').sum(dim='time')
+        
+        elif idx == 'CWD':
+            wet = rainfall >= 1
+            wet_int = wet.astype(int)
+            
+            def max_consecutive_ones(arr):
+                if len(arr) == 0:
+                    return 0
+                if arr.sum() == 0:
+                    return 0
+                return np.max(np.diff(np.where(np.concatenate(([arr[0]], arr[:-1] != arr[1:], [True])))[0])[::2])
+            
+            hydro_data['CWD'] = wet_int.resample(time='ME').apply(
+                lambda x: xr.DataArray(max_consecutive_ones(x.values))
+            )
+    
+    
+    # ========== FILENAME CONSTRUCTION ==========
+    filename_parts = [FigNo, Lake, f'FloodEvents-{time_unit_lake}', index]
+    file_name = '_'.join(filename_parts)
+    
+    
+    # ========== PLOTTING CONFIGURATION ==========
+    # Colors for multiple stations
+    #blue_colors = ['#4169E1', '#87CEFA', '#5F9EA0', '#87CEEB', '#ADD8E6']
+    blue_colors = ['#08519c', '#3182bd', '#6baed6', '#2ca02c', '#74c476']
+    
+    # Determine plot style for hydrological data
+    plot_style_hydro = {'linestyle': '-', 'marker': '', 'markersize': 0}
+    
+    # Configure labels
+    labels = {}
+    if index == 'mm' or index in mm_indices:
+        labels['hydro_ylabel'] = 'Rainfall (mm)'
+    else:
+        labels['hydro_ylabel'] = 'Days'
+        
+    labels['lake_ylabel'] = f'Lake Size {lake_size.units}'
+    
+    
+    # ========== CREATE FIGURE AND AXES ==========
+    fig = plt.figure(figsize=(40, 10))
+    ax1 = fig.add_subplot(111)
+    
+    # Set up axes based on what we're plotting
+    ax2 = ax1.twinx()
+    axis_hydro = ax1  # Hydrological data on left
+    axis_dea = ax2    # Lake data on right
+    
+    
+    # ========== PLOT HYDROLOGICAL DATA ==========
+    
+    # Plot index data
+    for i, (key, value) in enumerate(hydro_data.items()):
+        axis_hydro.plot(
+            value.time.values,
+            value.values,
+            label=key,
+            color=blue_colors[i % len(blue_colors)],
+            zorder=3,
+            **plot_style_hydro
+        )
+    
+    if index == 'mm' or index == 'monthly_total':
+        # Highlight rainfall peaks if applicable
+        if 'monthly_total' in hydro_data:
+            axis_hydro.plot(
+                peaks.time.values,
+                peaks.values,
+                linestyle='', marker='o', markersize=8,
+                label='Monthly Total Peaks',
+                color='maroon',
+                zorder=4
+            )
+    
+    
+    # ========== PLOT LAKE DATA AND EVENTS ==========
+    # Plot all lake observations as grey background
+    axis_dea.plot(
+        lake_size.time.values, lake_size.values,
+        color='grey', linestyle='', marker='o', markersize=6,
+        alpha=0.4, zorder=1
+    )
+    
+    # Highlight each detected event
+    for event in events:
+        event_sizes = lake_size.where(lake_size.dea_events == event, drop=True).dropna(dim='time')
+        axis_dea.plot(
+            event_sizes.time, event_sizes,
+            linestyle='--', marker='o', markersize=6,
+            color='black',
+            label=f'Event {int(event)}',
+            zorder=5
+        )
+        
+        # Add event label at peak
+        label_size = event_sizes.where(event_sizes.dea_event_max, drop=True)
+        axis_dea.text(
+            label_size.time, label_size + 3,
+            f'Event {int(event)}',
+            fontsize=20, ha='center', va='bottom',
+            color='black', zorder=6
+        )
+    
+    
+    # ========== FORMAT AXES ==========
+    # Set y-axis labels
+    axis_hydro.set_ylabel(labels['hydro_ylabel'], fontsize=20)
+    axis_hydro.tick_params(axis='y', labelsize=20)
+    
+    axis_dea.set_ylabel(labels['lake_ylabel'], fontsize=20)
+    axis_dea.tick_params(axis='y', labelsize=20)
+    
+    # Format x-axis with yearly ticks
+    ax1.grid(True, which='major', axis='both')
+    ax1.xaxis.set_major_locator(mdates.YearLocator(1))
+    ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
+    plt.setp(ax1.get_xticklabels(), rotation=90, ha='center', fontsize=20)
+    
+    # Add legend
+    axis_hydro.legend(fontsize=20, loc='upper left')
+    
+    # ========== SAVE FIGURE ==========
+    plt.savefig(f'{output_dir}/{file_name}.png', bbox_inches='tight')
+    plt.close()
+    
+    
+def plot_cumulative_rainfall_events(FigNo, ds, timeframe, magnitude=False, filtered=False):
     """
     Plot cumulative rainfall for all detected flood events.
     
@@ -1975,14 +2289,16 @@ def plot_cumulative_rainfall_events(ds, timeframe, magnitude=False, filtered=Fal
     
     Parameters
     ----------
+    FigNo : str
+        figure number (e.g., 'Fig1').
     ds : xarray.Dataset
         Dataset containing:
             - 'dea': lake variables with 'Size'
             - 'dea_events': event ID labels
             - 'dea_event_max': boolean marking event peaks
-            - 'calculate_cumulative_rainfall_per_event': cumulative rainfall
+            - 'cumulative_rainfall_per_event': cumulative rainfall
             - 'dea_offset': time offset relative to event peak
-            - 'calculate_cumulative_rainfall_per_event_filtered': filtered version (if filtered=True)
+            - 'cumulative_rainfall_per_event_filtered': filtered version (if filtered=True)
             - 'dea_offset_filtered': filtered offset (if filtered=True)
     timeframe : dict
         Dictionary with 'start' and 'end' keys containing year strings.
@@ -1994,7 +2310,7 @@ def plot_cumulative_rainfall_events(ds, timeframe, magnitude=False, filtered=Fal
     
     Output
     ------
-    Saves PNG: '{output_dir}/Fig3_{Lake}_CumulativeRainfall_AllEvents[_MagnitudeRanked][_Filtered].png'
+    Saves PNG: '{output_dir}/{FigNo}_{Lake}_CumulativeRainfall_AllEvents[_MagnitudeRanked][_Filtered].png'
     
     Raises
     ------
@@ -2008,9 +2324,9 @@ def plot_cumulative_rainfall_events(ds, timeframe, magnitude=False, filtered=Fal
     """
     # ========== VALIDATE INPUTS ==========
     required_vars = ['dea', 'dea_events', 'dea_event_max', 
-                     'calculate_cumulative_rainfall_per_event', 'dea_offset']
+                     'cumulative_rainfall_per_event', 'dea_offset']
     if filtered:
-        required_vars.extend(['dea_offset_filtered', 'calculate_cumulative_rainfall_per_event_filtered'])
+        required_vars.extend(['dea_offset_filtered', 'cumulative_rainfall_per_event_filtered'])
     
     missing_vars = [v for v in required_vars if v not in ds]
     if missing_vars:
@@ -2020,8 +2336,8 @@ def plot_cumulative_rainfall_events(ds, timeframe, magnitude=False, filtered=Fal
     # ========== DATA PREPARATION ==========
     # Select variables based on filtered option
     offset_var = 'dea_offset_filtered' if filtered else 'dea_offset'
-    cum_rainfall_var = ('calculate_cumulative_rainfall_per_event_filtered' if filtered 
-                       else 'calculate_cumulative_rainfall_per_event')
+    cum_rainfall_var = ('cumulative_rainfall_per_event_filtered' if filtered 
+                       else 'cumulative_rainfall_per_event')
     
     # Subset to timeframe
     trimmed_ds = ds.sel(time=slice(timeframe['start'], timeframe['end']))
@@ -2050,7 +2366,7 @@ def plot_cumulative_rainfall_events(ds, timeframe, magnitude=False, filtered=Fal
     
     
     # ========== FILENAME CONSTRUCTION ==========
-    filename_parts = [Lake, 'CumulativeRainfall', 'AllEvents']
+    filename_parts = [FigNo, Lake, 'CumulativeRainfall', 'AllEvents']
     if magnitude:
         filename_parts.append('MagnitudeRanked')
     if filtered:
@@ -2083,7 +2399,7 @@ def plot_cumulative_rainfall_events(ds, timeframe, magnitude=False, filtered=Fal
     }
     
     # X-axis ticks every 16 days
-    xticks = np.arange(x_min, x_max + 1, 16)
+    xticks = np.arange(x_min - (x_min % 16), x_max + 1, 16)
     xtick_labels = [f'{int(x)}' for x in xticks]
     
     
@@ -2129,11 +2445,11 @@ def plot_cumulative_rainfall_events(ds, timeframe, magnitude=False, filtered=Fal
     
     
     # ========== SAVE FIGURE ==========
-    plt.savefig(f'{output_dir}/Fig3_{file_name}.png', bbox_inches='tight')
+    plt.savefig(f'{output_dir}/{file_name}.png', bbox_inches='tight')
     plt.close()
 
 
-def plot_cumulative_rainfall_windows(ds, threshold, time_interval, start=None, magnitude=False):
+def plot_cumulative_rainfall_windows(FigNo, ds, threshold, time_interval, start=None, magnitude=False):
     """
     Plot cumulative rainfall windows categorized by event status and threshold.
     
@@ -2146,6 +2462,8 @@ def plot_cumulative_rainfall_windows(ds, threshold, time_interval, start=None, m
     
     Parameters
     ----------
+    FigNo : str
+        figure number (e.g., 'Fig1').
     ds : xarray.Dataset
         Dataset containing:
             - 'dea': lake variables with 'Size' and 'dea_event_max'
@@ -2166,7 +2484,7 @@ def plot_cumulative_rainfall_windows(ds, threshold, time_interval, start=None, m
     
     Output
     ------
-    Saves PNG: '{output_dir}/Fig4_{Lake}_CumulativeRainfall_{window}{unit}-window_{start}to{end}[_MagnitudeRanked].png'
+    Saves PNG: '{output_dir}/{FigNo}_{Lake}_CumulativeRainfall_{window}{unit}-window_{start}to{end}[_MagnitudeRanked].png'
     
     Raises
     ------
@@ -2257,6 +2575,7 @@ def plot_cumulative_rainfall_windows(ds, threshold, time_interval, start=None, m
     start_year = start_ds if start is None else start
     
     filename_parts = [
+        FigNo,
         Lake, 'CumulativeRainfall',
         f'{window}{time_unit[:-1]}-window',
         f'{start_year}to{end_ds}'
@@ -2296,7 +2615,7 @@ def plot_cumulative_rainfall_windows(ds, threshold, time_interval, start=None, m
     if magnitude:
         handles_config = {
             'handle1': {'colour': '#005b96', 'label': 'Lake Filling'},
-            'handle2': {'colour': 'lightgrey', 'label': 'No Lake Filling'},
+            'handle2': {'colour': 'lightgrey', 'label': 'No Lake Filling                           '},
             'handle3': {'colour': 'white', 'label': ''},
             'handle4': {'colour': 'white', 'label': ''}
         }
@@ -2397,11 +2716,11 @@ def plot_cumulative_rainfall_windows(ds, threshold, time_interval, start=None, m
     
     
     # ========== SAVE FIGURE ==========
-    plt.savefig(f'{output_dir}/Fig4_{file_name}.png', bbox_inches='tight')
+    plt.savefig(f'{output_dir}/{file_name}.png', bbox_inches='tight')
     plt.close()
         
     
-def plot_threshold_analysis(ds, timeframe, window_max, threshold, time_unit, optimal_window):
+def plot_threshold_analysis(FigNo, ds, timeframe, window_max, threshold, time_unit, optimal_window):
     """
     Analyze and plot cumulative rainfall thresholds across multiple window sizes.
     
@@ -2411,6 +2730,8 @@ def plot_threshold_analysis(ds, timeframe, window_max, threshold, time_unit, opt
     
     Parameters
     ----------
+    FigNo : str
+        figure number (e.g., 'Fig1').
     ds : xarray.Dataset
         Dataset containing:
             - 'mean_catchment_rainfall': daily or monthly rainfall
@@ -2429,7 +2750,7 @@ def plot_threshold_analysis(ds, timeframe, window_max, threshold, time_unit, opt
     
     Output
     ------
-    Saves PNG: '{output_dir}/Fig5_{Lake}_CumulativeRainfall_ThresholdAnalysis_{start}to{end}.png'
+    Saves PNG: '{output_dir}/{FigNo}_{Lake}_CumulativeRainfall_ThresholdAnalysis_{start}to{end}.png'
     
     Raises
     ------
@@ -2523,7 +2844,7 @@ def plot_threshold_analysis(ds, timeframe, window_max, threshold, time_unit, opt
     
     # ========== FILENAME CONSTRUCTION ==========
     filename_parts = [
-        Lake, 'CumulativeRainfall', 'ThresholdAnalysis',
+        FigNo, Lake, 'CumulativeRainfall', 'ThresholdAnalysis',
         f'{timeframe["start"]}to{timeframe["end"]}'
     ]
     file_name = '_'.join(filename_parts)
@@ -2599,8 +2920,315 @@ def plot_threshold_analysis(ds, timeframe, window_max, threshold, time_unit, opt
     
     
     # ========== SAVE FIGURE ==========
-    plt.savefig(f'{output_dir}/Fig5_{file_name}.png', bbox_inches='tight')
+    plt.savefig(f'{output_dir}/{file_name}.png', bbox_inches='tight')
     plt.close()
+
+
+def create_threshold_sensitivity_table(ds, timeframe, window_range, threshold, time_unit):
+    """
+    Create a table showing counts of event and non-event years for three threshold levels.
+    
+    Parameters
+    ----------
+    ds : xarray.Dataset
+        Dataset containing rainfall and event data
+    timeframe : dict
+        Dictionary with 'start' and 'end' keys containing year strings
+    window_range : tuple
+        (min_window, max_window) - range of window sizes to analyze (e.g., (80, 160))
+    threshold : float
+        Central rainfall threshold (mm) for analysis
+    time_unit : str
+        Unit of rolling window: 'days' or 'months'
+    
+    Returns
+    -------
+    pd.DataFrame
+        Table with columns for three thresholds (threshold-20, threshold, threshold+20):
+        - Window Size
+        - Events above {threshold-20}mm: Count of events meeting threshold-20
+        - Non-Events above {threshold-20}mm: Count of non-events meeting threshold-20
+        - Events above {threshold}mm: Count of events meeting threshold
+        - Non-Events above {threshold}mm: Count of non-events meeting threshold
+        - Events above {threshold+20}mm: Count of events meeting threshold+20
+        - Non-Events above {threshold+20}mm: Count of non-events meeting threshold+20
+    """
+    
+    # Validate inputs
+    required_vars = ['mean_catchment_rainfall', 'dea_events', 'dea_event_max']
+    missing_vars = [v for v in required_vars if v not in ds]
+    if missing_vars:
+        raise KeyError(f'Required variables missing from dataset: {", ".join(missing_vars)}')
+    
+    # Set parameters based on time unit
+    if time_unit == 'days':
+        distance_val = 221
+        move_date = 90
+    elif time_unit == 'months':
+        distance_val = 8
+        move_date = 3
+    else:
+        raise ValueError('time_unit must be "days" or "months"')
+    
+    # Define three threshold levels
+    thresholds = {
+        f'{threshold-20}mm': threshold - 20,
+        f'{threshold}mm': threshold,
+        f'{threshold+20}mm': threshold + 20
+    }
+    
+    # Subset to timeframe
+    trimmed_ds = ds.sel(time=slice(timeframe['start'], timeframe['end']))
+    catchment_rainfall = trimmed_ds['mean_catchment_rainfall'].compute()
+    
+    # Get event years
+    event_ids = ds.dea_events.where(ds.dea_event_max, drop=True)
+    event_years = set(event_ids.time.dt.year.values)
+    
+    # Initialize results storage
+    results = []
+    
+    # Process each window size
+    for window in range(window_range[0], window_range[1] + 1):
+        # Calculate rolling sum
+        rainfall_sum = catchment_rainfall.rolling(time=window, center=False).sum()
+        
+        # Identify peaks and troughs
+        peaks_and_troughs = identify_peaks_and_troughs(rainfall_sum, distance_val)
+        
+        # Extract peak values
+        rolling_sum_peaks = rainfall_sum[peaks_and_troughs['peaks']]
+        
+        # Assign year by shifting dates
+        rolling_sum_peaks = rolling_sum_peaks.assign_coords(
+            year=(rolling_sum_peaks.time + pd.Timedelta(**{time_unit: move_date})).dt.year
+        )
+        
+        # Keep only maximum peak per year
+        yearly_max_peaks = rolling_sum_peaks.groupby('year').max()
+        
+        # Initialize row data
+        row_data = {'Window Size': f'{window} {time_unit}'}
+        
+        # Calculate for each threshold
+        for thresh_label, thresh_value in thresholds.items():
+            # Find years exceeding this threshold
+            exceeding_threshold = yearly_max_peaks[yearly_max_peaks >= thresh_value]
+            years_exceeding = set(exceeding_threshold.year.values)
+            
+            # Count event and non-event years
+            event_years_meeting = years_exceeding.intersection(event_years)
+            non_event_years_meeting = years_exceeding - event_years
+            
+            # Add to row data
+            if thresh_value == threshold - 20:
+                row_data[f'Events above {threshold-20}mm'] = len(event_years_meeting)
+                row_data[f'Non-Events above {threshold-20}mm'] = len(non_event_years_meeting)
+            elif thresh_value == threshold:
+                row_data[f'Events above {threshold}mm'] = len(event_years_meeting)
+                row_data[f'Non-Events above {threshold}mm'] = len(non_event_years_meeting)
+            else:  # threshold + 20
+                row_data[f'Events above {threshold+20}mm'] = len(event_years_meeting)
+                row_data[f'Non-Events above {threshold+20}mm'] = len(non_event_years_meeting)
+        
+        results.append(row_data)
+    
+    # Create DataFrame
+    df = pd.DataFrame(results)
+    
+    # Reorder columns for clarity
+    column_order = [
+        'Window Size',
+        f'Events above {threshold-20}mm', f'Non-Events above {threshold-20}mm',
+        f'Events above {threshold}mm', f'Non-Events above {threshold}mm',
+        f'Events above {threshold+20}mm', f'Non-Events above {threshold+20}mm'
+    ]
+    df = df[column_order]
+    
+    return df
+
+
+def plot_scatter_RollingSumVsLakeSize(FigNo, df, ds, window, outlier_events=None, show_labels=True, 
+                                     show_trendline=True):
+    """
+    Plot scatter of rolling sum vs lake size with outliers highlighted and trendline.
+    
+    Parameters
+    ----------
+    FigNo : str
+        figure number (e.g., 'Fig1').
+    df : pandas.DataFrame
+        DataFrame containing the event data
+    ds : xarray.Dataset
+        Dataset containing:
+            - 'dea': lake variables with 'Size' and 'dea_event_max'
+            - 'rolling_sum_of_mean_catchment_rainfall': rolling sum rainfall
+    window : int
+        Window size for rolling sum calculation
+    outlier_events : list, optional
+        List of event indices to mark as outliers (default: None)
+    show_labels : bool, optional
+        Whether to show event labels on points (default: True)
+    show_trendline : bool, optional
+        Whether to show trendline for non-outlier points (default: True)
+    
+    Returns
+    -------
+    dict
+        Dictionary containing regression statistics (slope, intercept, r_value, p_value)
+    
+    Raises
+    ------
+    KeyError
+        If required variables are missing from dataset.
+    ValueError
+        If f'{window} day total', 'lake peaks' not in df.
+
+    """
+    # ========== VALIDATE INPUTS ==========
+    required_vars = ['dea', 'rolling_sum_of_mean_catchment_rainfall']
+    missing_vars = [v for v in required_vars if v not in ds]
+    if missing_vars:
+        raise KeyError(f'Required variables missing from dataset: {", ".join(missing_vars)}')
+
+    if df.empty:
+        raise ValueError("DataFrame cannot be empty")
+    
+    required_cols = [f'{window} day total', 'lake peaks']
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        raise ValueError(f"Missing required columns: {missing_cols}")
+    
+    # ========== DATA PREPARATION ==========
+    # Handle outliers
+    if outlier_events is None:
+        outlier_events = []
+    
+    # Get all indices and separate outliers from others
+    all_indices = df.index.tolist()
+    other_events = [x for x in all_indices if x not in set(outlier_events)]
+    
+    # Validate that outlier events exist in the dataframe
+    valid_outliers = [x for x in outlier_events if x in all_indices]
+    if outlier_events and len(valid_outliers) < len(outlier_events):
+        print("Warning: Some outlier indices not found in DataFrame")
+    outlier_events = valid_outliers
+    
+    # Extract values
+    x = df.loc[other_events][f'{window} day total']
+    y = df.loc[other_events]['lake peaks']
+    
+    if outlier_events:
+        x_outliers = df.loc[outlier_events][f'{window_size_daily} day total']
+        y_outliers = df.loc[outlier_events]['lake peaks']
+    
+    # ========== FILENAME CONSTRUCTION ==========
+    filename_parts = [FigNo, Lake, 'Scatter', 'RollingSumVsLakeSize']
+    file_name = '_'.join(filename_parts)
+    
+    # ========== PLOTTING CONFIGURATION ==========
+    # Define specific colors
+    colors = {
+        'other': '#005b96',      # blue
+        'outlier': '#ff7f0e',    # orange
+        'trendline': '#005b96'   # match main data
+    }
+    
+    # ========== CREATE FIGURE AND PLOT ==========
+    fig = plt.figure(figsize=(10, 10))
+    ax1 = fig.add_subplot(111)
+    
+    # Create scatter plots with specific colors
+    ax1.scatter(x,
+                y,
+                color=colors['other'],
+                alpha=0.8,
+                s=50,
+                label="Events")
+    
+    if outlier_events:
+        ax1.scatter(x_outliers,
+                    y_outliers,
+                    color=colors['outlier'],
+                    alpha=0.8,
+                    s=100,
+                    marker='^',  # different marker for outliers
+                    label="Outliers")
+    
+    # ========== ADD LABELS (OPTIONAL) ==========
+    if show_labels:
+        # Add labels for non-outlier points
+        for idx, x_val, y_val in zip(other_events, x, y):
+            ax1.annotate(f'Event {str(idx)}', 
+                        (x_val, y_val), 
+                        xytext=(5, 5),  # offset from point
+                        textcoords='offset points',
+                        fontsize=8,
+                        alpha=0.7)
+        
+        # Add labels for outlier points
+        if outlier_events:
+            for idx, x_val, y_val in zip(outlier_events, x_outliers, y_outliers):
+                ax1.annotate(f'Event {str(idx)}', 
+                            (x_val, y_val), 
+                            xytext=(5, 5),  # offset from point
+                            textcoords='offset points',
+                            fontsize=8,
+                            alpha=0.7,
+                            color=colors['outlier'])  # match outlier color
+    
+    # ========== CALCULATE AND PLOT TRENDLINE (OPTIONAL) ==========
+    results = {}
+    if show_trendline and len(x) > 1:
+        # Calculate trendline for non-outlier data
+        slope, intercept, r_value, p_value, std_err = stats.linregress(x.values, y.values)
+        
+        # Store results
+        results = {
+            'slope': slope,
+            'intercept': intercept,
+            'r_value': r_value,
+            'r_squared': r_value**2,
+            'p_value': p_value,
+            'std_err': std_err
+        }
+        
+        # Create trendline points
+        line_x = np.array([x.values.min(), x.values.max()])
+        line_y = slope * line_x + intercept
+        
+        # Plot trendline
+        ax1.plot(line_x, line_y, 
+                 color=colors['trendline'], 
+                 linestyle='--', 
+                 linewidth=2, 
+                 label=f'Trendline (non-outliers, R² = {r_value**2:.3f})')
+        
+        # Add R² value and equation as text
+        equation_text = f'y = {slope:.3f}x + {intercept:.3f}\nR² = {r_value**2:.3f}\np-value = {p_value:.3e}'
+        ax1.text(0.05, 0.95, equation_text, 
+                 transform=ax1.transAxes, 
+                 verticalalignment='top',
+                 bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+    
+    # ========== FORMAT AXES ==========
+    # Add axis labels
+    lake_units = ds.dea.sel(lake_variable='Size').units
+    rainfall_units = ds.rolling_sum_of_mean_catchment_rainfall.units
+    ax1.set_xlabel(f'{window_size_daily} Day Rainfall Total ({rainfall_units})', fontsize=14)
+    ax1.set_ylabel(f'Lake Filling Peaks ({lake_units})', fontsize=14)
+    
+    # Improve legend
+    ax1.legend(loc='best', fontsize=12)
+    
+    # Add grid for better readability
+    ax1.grid(True, alpha=0.3)
+    
+    # ========== SAVE FIGURE ==========
+    plt.savefig(f'{output_dir}/{file_name}.png', bbox_inches='tight')
+    plt.close()
+    
+    return results
     
 
 def plot_rolling_sum(ax_left, ax_right, ds, start_date, end_date, window, time_unit, 
@@ -2804,7 +3432,7 @@ def plot_rolling_sum(ax_left, ax_right, ds, start_date, end_date, window, time_u
     plt.setp(ax_left.get_xticklabels(), rotation=90, ha='center', fontsize=20)        
 
 
-def plot_rolling_sum_subplots(ds, window, time_unit, threshold1, threshold2, 
+def plot_rolling_sum_subplots(FigNo, ds, window, time_unit, threshold1, threshold2, 
                                event_timeframe, rain_timeframe, peaks_troughs=None):
     """
     Create a two-panel plot of rolling sum rainfall over different timeframes.
@@ -2816,6 +3444,8 @@ def plot_rolling_sum_subplots(ds, window, time_unit, threshold1, threshold2,
     
     Parameters
     ----------
+    FigNo : str
+        figure number (e.g., 'Fig1').
     ds : xarray.Dataset
         Dataset containing:
             - 'rolling_sum_of_mean_catchment_rainfall': rolling sum rainfall
@@ -2841,7 +3471,7 @@ def plot_rolling_sum_subplots(ds, window, time_unit, threshold1, threshold2,
     
     Output
     ------
-    Saves PNG: '{output_dir}/Fig6_{Lake}_RollingSum_{window}{unit}-window.png'
+    Saves PNG: '{output_dir}/{FigNo}_{Lake}_RollingSum_{window}{unit}-window.png'
     
     Raises
     ------
@@ -2868,7 +3498,7 @@ def plot_rolling_sum_subplots(ds, window, time_unit, threshold1, threshold2,
     
     
     # ========== FILENAME CONSTRUCTION ==========
-    filename_parts = [Lake, 'RollingSum', f'{window}{time_unit[:-1]}-window']
+    filename_parts = [FigNo, Lake, 'RollingSum', f'{window}{time_unit[:-1]}-window']
     file_name = '_'.join(filename_parts)
     
     
@@ -2906,7 +3536,7 @@ def plot_rolling_sum_subplots(ds, window, time_unit, threshold1, threshold2,
     )
     
     # ========== SAVE FIGURE ==========
-    plt.savefig(f'{output_dir}/Fig6_{file_name}.png', bbox_inches='tight')
+    plt.savefig(f'{output_dir}/{file_name}.png', bbox_inches='tight')
     plt.close()
 
 
@@ -3139,7 +3769,7 @@ def plot_rolling_sum_variable_window(ax_left, ax_right, ds, start_date, end_date
     ax_right.tick_params(axis='y', labelsize=20)
         
 
-def plot_rolling_sum_variable_window_subplots(ds, time_unit, threshold, window_min, window_max, 
+def plot_rolling_sum_variable_window_subplots(FigNo, ds, time_unit, threshold, window_min, window_max, 
                                                event_timeframe, rain_timeframe):
     """
     Create a two-panel plot of rolling sums across multiple window sizes.
@@ -3151,6 +3781,8 @@ def plot_rolling_sum_variable_window_subplots(ds, time_unit, threshold, window_m
     
     Parameters
     ----------
+    FigNo : str
+        figure number (e.g., 'Fig1').
     ds : xarray.Dataset
         Dataset containing:
             - 'mean_catchment_rainfall': daily or monthly rainfall
@@ -3171,7 +3803,7 @@ def plot_rolling_sum_variable_window_subplots(ds, time_unit, threshold, window_m
     
     Output
     ------
-    Saves PNG: '{output_dir}/Fig6_{Lake}_RollingSum_{window_min}to{window_max}{unit}-window.png'
+    Saves PNG: '{output_dir}/{FigNo}_{Lake}_RollingSum_{window_min}to{window_max}{unit}-window.png'
     
     Raises
     ------
@@ -3196,7 +3828,7 @@ def plot_rolling_sum_variable_window_subplots(ds, time_unit, threshold, window_m
     
     
     # ========== FILENAME CONSTRUCTION ==========
-    filename_parts = [Lake, 'RollingSum', f'{window_min}to{window_max}{time_unit[:-1]}-window']
+    filename_parts = [FigNo, Lake, 'RollingSum', f'{window_min}to{window_max}{time_unit[:-1]}-window']
     file_name = '_'.join(filename_parts)
     
     
@@ -3230,10 +3862,9 @@ def plot_rolling_sum_variable_window_subplots(ds, time_unit, threshold, window_m
         window_max=window_max,
         show_legend=False
     )
-    
-    
+        
     # ========== SAVE FIGURE ==========
-    plt.savefig(f'{output_dir}/Fig6_{file_name}.png', bbox_inches='tight')
+    plt.savefig(f'{output_dir}/{file_name}.png', bbox_inches='tight')
     plt.close()
         
 
@@ -3371,7 +4002,7 @@ def plot_NT_event_maps(ax_no, da, timeframe, event_timeframe, lake_mask, thresho
     return im0
 
 
-def plot_NT_event_maps_subplots(da, event_timeframe, lake_mask, window_size, time_unit, threshold):
+def plot_NT_event_maps_subplots(FigNo, da, event_timeframe, lake_mask, window_size, time_unit, threshold):
     """
     Create a 3x2 grid of Northern Territory rainfall composite maps.
     
@@ -3381,6 +4012,8 @@ def plot_NT_event_maps_subplots(da, event_timeframe, lake_mask, window_size, tim
     
     Parameters
     ----------
+    FigNo : str
+        figure number (e.g., 'Fig1').
     da : xarray.DataArray
         Rainfall data with rolling window sum and event coordinates
         ('above_threshold', 'dea_events').
@@ -3397,7 +4030,7 @@ def plot_NT_event_maps_subplots(da, event_timeframe, lake_mask, window_size, tim
     
     Output
     ------
-    Saves PNG: '{output_dir}/Fig7_{Lake}_NAus_composite_maps.png'
+    Saves PNG: '{output_dir}/{FigNo}_{Lake}_NAus_composite_maps.png'
     
     Raises
     ------
@@ -3435,7 +4068,7 @@ def plot_NT_event_maps_subplots(da, event_timeframe, lake_mask, window_size, tim
     
     
     # ========== FILENAME CONSTRUCTION ==========
-    filename_parts = [Lake, 'NAus_composite_maps']
+    filename_parts = [FigNo, Lake, 'NAus_composite_maps']
     file_name = '_'.join(filename_parts)
     
     
@@ -3530,10 +4163,9 @@ def plot_NT_event_maps_subplots(da, event_timeframe, lake_mask, window_size, tim
                 fontsize=14, fontweight='bold',
                 va='bottom', ha='center'
             )
-    
-    
+        
     # ========== SAVE FIGURE ==========
-    plt.savefig(f'{output_dir}/Fig7_{file_name}.png', bbox_inches='tight')
+    plt.savefig(f'{output_dir}/{file_name}.png', bbox_inches='tight')
     plt.close()
     
 
@@ -3793,7 +4425,7 @@ def plot_rolling_sum_with_driver(ax_left, ax_right1, ax_right2, ds, start_date, 
     plt.setp(ax_left.get_xticklabels(), rotation=90, ha='center', fontsize=20)
         
 
-def plot_rolling_sum_with_driver_subplots(ds, driver, driver_index, indices_dict, window, 
+def plot_rolling_sum_with_driver_subplots(FigNo, ds, driver, driver_index, indices_dict, window, 
                                            time_unit, threshold1, threshold2, 
                                            event_timeframe, rain_timeframe):
     """
@@ -3806,6 +4438,8 @@ def plot_rolling_sum_with_driver_subplots(ds, driver, driver_index, indices_dict
     
     Parameters
     ----------
+    FigNo : str
+        figure number (e.g., 'Fig1').
     ds : xarray.Dataset
         Dataset containing:
             - 'rolling_sum_of_mean_catchment_rainfall': rolling sum rainfall
@@ -3833,7 +4467,7 @@ def plot_rolling_sum_with_driver_subplots(ds, driver, driver_index, indices_dict
     
     Output
     ------
-    Saves PNG: '{output_dir}/Fig8_{Lake}_RollingSum_{window}{unit}-window_{DRIVER}_{index}.png'
+    Saves PNG: '{output_dir}/{FigNo}_{Lake}_RollingSum_{window}{unit}-window_{DRIVER}_{index}.png'
     
     Raises
     ------
@@ -3853,7 +4487,7 @@ def plot_rolling_sum_with_driver_subplots(ds, driver, driver_index, indices_dict
     
     
     # ========== FILENAME CONSTRUCTION ==========
-    filename_parts = [Lake, 'RollingSum', f'{window}{time_unit[:-1]}-window', 
+    filename_parts = [FigNo, Lake, 'RollingSum', f'{window}{time_unit[:-1]}-window', 
                      driver.upper(), driver_index]
     file_name = '_'.join(filename_parts)
     
@@ -3900,7 +4534,7 @@ def plot_rolling_sum_with_driver_subplots(ds, driver, driver_index, indices_dict
     )
     
     # ========== SAVE FIGURE ==========
-    plt.savefig(f'{output_dir}/Fig8_{file_name}.png', bbox_inches='tight')
+    plt.savefig(f'{output_dir}/{file_name}.png', bbox_inches='tight')
     plt.close()
 
 
@@ -4004,9 +4638,16 @@ lake_daily_ds = filter_out_empty_stations(lake_daily_ds, 'rainfall')
 
 
 # ========== LOAD REGIONAL RAINFALL DATA ==========
+NT_mask_r005_netcdf = xr.open_dataset(NT_mask_r005_file, chunks={'time': dask_chunks})
+NT_mask_r005_netcdf = normalise_latlon(NT_mask_r005_netcdf)
+NT_mask_r005 = NT_mask_r005_netcdf['landmask']
+
 agcd_NT_daily_ds = xr.open_dataset(agcd_NT_daily_file, chunks={'time': dask_chunks})
 agcd_NT_daily_ds = normalise_latlon(agcd_NT_daily_ds)
 agcd_NT_daily_ds = ensure_time_coord(agcd_NT_daily_ds)
+
+agcd_NT_daily_ds = assign_mask_with_check(agcd_NT_daily_ds, NT_mask_r005)
+agcd_NT_daily_ds['precip'] = agcd_NT_daily_ds['precip'].where(agcd_NT_daily_ds['precip'].catchment_mask == 1)
 
 
 # ========== LOAD SATELLITE LAKE OBSERVATIONS ==========
@@ -4132,13 +4773,13 @@ lake_daily_ds['dea'] = lake_daily_ds['dea'].assign_coords(
 )
 
 # Calculate cumulative rainfall per event
-lake_daily_ds['calculate_cumulative_rainfall_per_event'] = calculate_cumulative_rainfall_per_event(
+lake_daily_ds['cumulative_rainfall_per_event'] = calculate_cumulative_rainfall_per_event(
     lake_daily_ds, 'mean_catchment_rainfall'
 )
-lake_daily_ds = add_attrs('agcd', lake_daily_ds, 'calculate_cumulative_rainfall_per_event', ds_attrs)
+lake_daily_ds = add_attrs('agcd', lake_daily_ds, 'cumulative_rainfall_per_event', ds_attrs)
 
 # Filter cumulative rainfall to remove low-intensity periods
-lake_daily_ds['calculate_cumulative_rainfall_per_event_filtered'] = (
+lake_daily_ds['cumulative_rainfall_per_event_filtered'] = (
     filter_cumulative_rainfall(lake_daily_ds)
     .reindex(time=lake_daily_ds.time, fill_value=np.nan)
 )
@@ -4195,7 +4836,13 @@ lake_daily_ds = add_attrs('agcd', lake_daily_ds, 'cumulative_rainfall_up_to_peak
 #%% Generate Figures
 
 # ========== FIGURE 1: CATCHMENT MAP ==========
+plot_EA_map(
+    'Fig1',
+    lake_mask_fine=lake_mask_fine_da
+)
+
 plot_catchment_map(
+    'Fig1',
     lake_daily_ds, 
     timeframe=dea_timeframe, 
     lake_mask_coarse=Lake_mask_r005, 
@@ -4206,6 +4853,7 @@ plot_catchment_map(
 # ========== FIGURE 2: DEA FLOOD EVENT TIMESERIES ==========
 # Plot with monthly rainfall (mean and stations)
 plot_dea_timeseries(
+    'Fig2',
     lake_daily_ds, 
     timeframe=dea_timeframe, 
     time_unit_lake='daily', 
@@ -4217,6 +4865,7 @@ plot_dea_timeseries(
 
 # Plot with daily runoff (stations only)
 plot_dea_timeseries(
+    'Fig2',
     lake_daily_ds, 
     timeframe=dea_timeframe, 
     time_unit_lake='daily', 
@@ -4225,27 +4874,91 @@ plot_dea_timeseries(
     plot_station=True
 )
 
-# Plot with rainfall peaks before event maxima
-plot_dea_timeseries(
+
+# Plot rainfall indices (mm)
+plot_dea_indices(
+    'Fig2',
     lake_daily_ds, 
     timeframe=dea_timeframe, 
-    time_unit_lake='monthly', 
-    hydro_type='rainfall', 
-    time_unit_data='monthly', 
-    plot_mean=True, 
-    peaks=True
+    time_unit_lake='daily', 
+    index = 'mm'
 )
+
+# Plot rainfall indices (days)
+plot_dea_indices(
+    'Fig2',
+    lake_daily_ds, 
+    timeframe=dea_timeframe, 
+    time_unit_lake='daily', 
+    index = 'days'
+)
+
+# Plot rainfall index Monthly Total
+plot_dea_indices(
+    'Fig2',
+    lake_daily_ds, 
+    timeframe=dea_timeframe, 
+    time_unit_lake='daily', 
+    index = 'monthly_total'
+)
+
+# Plot rainfall index Rx5day
+plot_dea_indices(
+    'Fig2',
+    lake_daily_ds, 
+    timeframe=dea_timeframe, 
+    time_unit_lake='daily', 
+    index = 'Rx5day'
+)
+
+# Plot rainfall index SDII
+plot_dea_indices(
+    'Fig2',
+    lake_daily_ds, 
+    timeframe=dea_timeframe, 
+    time_unit_lake='daily', 
+    index = 'SDII'
+)
+
+# Plot rainfall indix R40mm
+plot_dea_indices(
+    'Fig2',
+    lake_daily_ds, 
+    timeframe=dea_timeframe, 
+    time_unit_lake='daily', 
+    index = 'R40mm'
+)
+
+# Plot rainfall indix R99p
+plot_dea_indices(
+    'Fig2',
+    lake_daily_ds, 
+    timeframe=dea_timeframe, 
+    time_unit_lake='daily', 
+    index = 'R99p'
+)
+
+# Plot rainfall indix CWD
+plot_dea_indices(
+    'Fig2',
+    lake_daily_ds, 
+    timeframe=dea_timeframe, 
+    time_unit_lake='daily', 
+    index = 'CWD'
+)
+
 
 
 # ========== FIGURE 3: CUMULATIVE RAINFALL PER EVENT ==========
 # Plot all events with distinct colors
-plot_cumulative_rainfall_events(lake_daily_ds, timeframe=dea_timeframe)
+plot_cumulative_rainfall_events('Fig3', lake_daily_ds, timeframe=dea_timeframe)
 
 # Plot events sorted by magnitude
-plot_cumulative_rainfall_events(lake_daily_ds, timeframe=dea_timeframe, magnitude=True)
+plot_cumulative_rainfall_events('Fig3', lake_daily_ds, timeframe=dea_timeframe, magnitude=True)
 
 # Plot filtered events sorted by magnitude
 plot_cumulative_rainfall_events(
+    'Fig3', 
     lake_daily_ds, 
     timeframe=dea_timeframe, 
     magnitude=True, 
@@ -4256,6 +4969,7 @@ plot_cumulative_rainfall_events(
 # ========== FIGURE 4: CUMULATIVE RAINFALL BUILD-UP ==========
 # Plot cumulative rainfall over window
 plot_cumulative_rainfall_windows(
+    'Fig4', 
     ds=lake_daily_ds, 
     threshold=lower_threshold_daily, 
     time_interval=f'{window_size_daily}_days', 
@@ -4264,6 +4978,7 @@ plot_cumulative_rainfall_windows(
 
 # Plot sorted by magnitude
 plot_cumulative_rainfall_windows(
+    'Fig4', 
     ds=lake_daily_ds, 
     threshold=lower_threshold_daily, 
     time_interval=f'{window_size_daily}_days', 
@@ -4275,6 +4990,7 @@ plot_cumulative_rainfall_windows(
 # ========== FIGURE 5: THRESHOLD ANALYSIS ==========
 # Analyze optimal rolling sum window and threshold
 plot_threshold_analysis(
+    'Fig5', 
     lake_daily_ds, 
     timeframe=dea_timeframe, 
     window_max=208, 
@@ -4283,10 +4999,68 @@ plot_threshold_analysis(
     optimal_window=window_size_daily
 )
 
+table_df = create_threshold_sensitivity_table(
+    ds=lake_daily_ds,
+    timeframe=dea_timeframe,
+    window_range=(1, 208),
+    threshold=lower_threshold_daily,
+    time_unit='days'
+)
+table_df.to_csv(f'{output_dir}/Table_ThresholdSensitivity.csv', index=False)
 
-# ========== FIGURE 6: ROLLING SUM RAINFALL TIMESERIES ==========
+
+# ========== FIGURE 6: ROLLING SUM VS LAKE MAX SCATTER & TABLE ==========
+#Events Table
+events_table = (
+    pd.DataFrame({
+        'event_no': np.unique(lake_daily_ds.dea_events.dropna(dim='time').values).astype(int),
+        'start_date': lake_daily_ds.time.groupby('dea_events').min().values,
+        'end_date': lake_daily_ds.where(lake_daily_ds.dea_event_max, drop=True).time.values,
+        'duration in days (filtered)': abs(lake_daily_ds.dea_offset_filtered.groupby('dea_events').min()).values,
+        'cum precip (filtered)': lake_daily_ds.cumulative_rainfall_per_event_filtered.groupby('dea_events').max().values.round(2),
+        f'{window_size_daily} day total': lake_daily_ds.rolling_sum_of_mean_catchment_rainfall.groupby('dea_events').max().values.round(2),
+        'lake peaks': lake_daily_ds.dea.sel(lake_variable='Size').groupby('dea_events').max().values.round(2),
+    })
+    .set_index('event_no')
+)
+events_table.to_csv(f'{output_dir}/events_table.csv')
+
+# Basic usage with outliers
+results = plot_scatter_RollingSumVsLakeSize(
+    'Fig6', 
+    df=events_table,
+    ds=lake_daily_ds,
+    window=window_size_daily,
+    outlier_events=[10, 14, 16, 1, 3, 12]
+)
+
+# Without outliers
+#results = plot_scatter_RollingSumVsLakeSize(
+#    'Fig6', 
+#    df=events_table,
+#    window=window_size_daily,
+#)
+
+# Without labels for cleaner look
+#results = plot_scatter_RollingSumVsLakeSize(
+#    'Fig6', 
+#    df=events_table,
+#    window=window_size_daily,
+#    outlier_events=[10, 14, 16, 1, 3, 12],
+#    show_labels=False
+#)
+
+# Access results
+if results:
+    print(f"Slope: {results['slope']:.3f}")
+    print(f"R-squared: {results['r_squared']:.3f}")
+    print(f"P-value: {results['p_value']:.3e}")
+    
+    
+# ========== FIGURE 7: ROLLING SUM RAINFALL TIMESERIES ==========
 # Plot fixed window rolling sum
 plot_rolling_sum_subplots(
+    'Fig7', 
     lake_daily_ds, 
     window=window_size_daily, 
     time_unit='days',
@@ -4298,6 +5072,7 @@ plot_rolling_sum_subplots(
 
 # Plot variable window rolling sum (80-224 days)
 plot_rolling_sum_variable_window_subplots(
+    'Fig7', 
     lake_daily_ds, 
     time_unit='days', 
     threshold=lower_threshold_daily, 
@@ -4308,9 +5083,9 @@ plot_rolling_sum_variable_window_subplots(
 )
 
 
-# ========== FIGURE 7: NORTHERN AUSTRALIA COMPOSITE MAPS ==========
+# ========== FIGURE 8: NORTHERN AUSTRALIA COMPOSITE MAPS ==========
 # Calculate window sums for regional rainfall data
-NT_daily_rainfall_window_sum_da = calculate_sum_over_given_windows(
+NT_daily_rainfall_window_sum_da = calculate_sum_over_given_windows( 
     ds=lake_daily_ds, 
     da=agcd_NT_daily_ds['precip'], 
     window_size=window_size_daily
@@ -4318,6 +5093,7 @@ NT_daily_rainfall_window_sum_da = calculate_sum_over_given_windows(
 
 # Generate composite maps for event/non-event periods
 plot_NT_event_maps_subplots(
+    'Fig8', 
     NT_daily_rainfall_window_sum_da, 
     event_timeframe=dea_timeframe, 
     lake_mask=lake_mask_fine_da,
@@ -4327,7 +5103,7 @@ plot_NT_event_maps_subplots(
 )
 
 
-# ========== FIGURE 8: CLIMATE DRIVERS WITH ROLLING SUM ==========
+# ========== FIGURE 9 & 10: CLIMATE DRIVERS WITH ROLLING SUM ==========
 # Define available driver indices
 driver_indices_dict = {
     'enso': {
@@ -4357,6 +5133,7 @@ plot_params = {
 # ========== ENSO INDICES ==========
 # Nino 3.4 (ERSST)
 plot_rolling_sum_with_driver_subplots(
+    'Fig9', 
     lake_daily_ds, 
     driver='enso', 
     driver_index='Nino34_ERSST',
@@ -4365,6 +5142,7 @@ plot_rolling_sum_with_driver_subplots(
 
 # Nino 3.4 (HadISST)
 plot_rolling_sum_with_driver_subplots(
+    'Fig9', 
     lake_daily_ds, 
     driver='enso', 
     driver_index='Nino34_HadISST',
@@ -4373,6 +5151,7 @@ plot_rolling_sum_with_driver_subplots(
 
 # ONI
 plot_rolling_sum_with_driver_subplots(
+    'Fig9', 
     lake_daily_ds, 
     driver='enso', 
     driver_index='ONI',
@@ -4383,6 +5162,7 @@ plot_rolling_sum_with_driver_subplots(
 # ========== IPO INDICES ==========
 # HadISST
 plot_rolling_sum_with_driver_subplots(
+    'Fig10', 
     lake_daily_ds, 
     driver='ipo', 
     driver_index='HadISST',
@@ -4391,6 +5171,7 @@ plot_rolling_sum_with_driver_subplots(
 
 # ERSST
 plot_rolling_sum_with_driver_subplots(
+    'Fig10', 
     lake_daily_ds, 
     driver='ipo', 
     driver_index='ERSST',
@@ -4399,6 +5180,7 @@ plot_rolling_sum_with_driver_subplots(
 
 # COBE
 plot_rolling_sum_with_driver_subplots(
+    'Fig10', 
     lake_daily_ds, 
     driver='ipo', 
     driver_index='COBE',
@@ -4407,4 +5189,10 @@ plot_rolling_sum_with_driver_subplots(
 
 
 
-    
+
+
+
+
+
+
+      
