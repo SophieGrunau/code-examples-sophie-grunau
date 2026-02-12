@@ -68,6 +68,7 @@ References:
 """
 
 # ========== IMPORTS ==========
+from pathlib import Path
 import glob
 import pandas as pd
 import xarray as xr
@@ -107,6 +108,8 @@ dask_chunks = 3650
 # Directories
 input_dir = r'/Users/leasophiegrunau/Documents/Work/Bewerbungen/code-examples-sophie-grunau/data_analysis/Data'
 output_dir = r'/Users/leasophiegrunau/Documents/Work/Bewerbungen/code-examples-sophie-grunau/data_analysis/Output'
+# Create directory if it doesn't exist
+Path(output_dir).mkdir(parents=True, exist_ok=True)
 
 # Input files
 Lake_mask_r005_file = f'{input_dir}/{Lake}_mask_r005.nc'

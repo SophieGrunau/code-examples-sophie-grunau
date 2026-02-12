@@ -49,6 +49,8 @@ sample_group_name <- c("Group 1", "Group 2")
 lithology_clas_name <- 'Groups'
 new_data$Sample_Group <- ifelse(grepl("23WC07ap", new_data$Grain), sample_group_name[1], ifelse(grepl("23WC08ap", new_data$Grain), sample_group_name[2], NA))
 
+#SOPHIE: Creates directory for outputs
+dir.create("Plots", showWarnings = FALSE)
 
 #The ONLY numbers you need to specify in this code are the following, wherein you need
 #to define the age range you would like the unknowns to be displayed over on SVM plot
