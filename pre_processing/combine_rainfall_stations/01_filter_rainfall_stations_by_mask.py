@@ -3,6 +3,7 @@
 """
 Author:      Lea Sophie Grunau  
 Created on:  2025-07-14 
+Last updated: 2026-02-23
 
 Filter BOM rainfall station metadata spatially using a lake mask and open the 
 corresponding webpages for manual data download.
@@ -24,11 +25,10 @@ Dependencies:
    - netCDF4 (for xarray backend)
    - python libraries: argparse, sys, pathlib, pandas, xarray, webbrowser, time, requests, datetime
    - files: {Lake}_mask_r001.nc, rainfall_stations.txt
- Note: Paths must be adapted to your system.
 
 Usage:
     python 01_filter_rainfall_stations_by_mask.py --Lake <lake_short_code>
-    e.g. 01_python filter_rainfall_stations_by_mask.py --Lake LW
+    e.g. python 01_filter_rainfall_stations_by_mask.py --Lake LW
 
 """
 
@@ -51,11 +51,13 @@ args = parser.parse_args()
 Lake = args.Lake
 
 # Paths to necessary input files based on lake name
-input_dir = "/Users/leasophiegrunau/Documents/Work/Bewerbungen/code-examples-sophie-grunau/pre_processing/combine_rainfall_stations"
-output_dir = Path(f"/Users/leasophiegrunau/Documents/Work/Bewerbungen/code-examples-sophie-grunau/pre_processing/combine_rainfall_stations/{Lake}_rainfall_stations")
-Lake_mask_path = Path(f"{input_dir}/{Lake}_mask_r001.nc")
-rainfall_stations_path = Path(f'{input_dir}/rainfall_stations.txt')
-missed_rainfall_stations_path = Path(f'{output_dir}/{Lake}_missed_rainfall_stations.csv')
+input_dir = Path(__file__).parent.parent
+data_dir = input_dir / 'data'
+output_dir = data_dir / f'{Lake}_rainfall_stations'
+
+Lake_mask_path = data_dir / f'{Lake}_mask_r001.nc'
+rainfall_stations_path = data_dir / 'rainfall_stations.txt'
+missed_rainfall_stations_path = output_dir / f'{Lake}_missed_rainfall_stations.csv'
 
 # Create the output directory (and parent dirs if needed)
 output_dir.mkdir(parents=True, exist_ok=True)

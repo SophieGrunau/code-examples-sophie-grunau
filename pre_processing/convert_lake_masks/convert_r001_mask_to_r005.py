@@ -4,23 +4,30 @@
 """
 Author:      Lea Sophie Grunau  
 Created on:  2025-07-07 
+Last updated: 2026-02-23
 
-Converts mask r001 mask (grid of 0.01) to r005 mask (grid of 0.05).
+Description:
+    Converts a binary lake mask from r001 resolution (0.01°) to r005 resolution (0.05°)
+    by padding the grid to ensure alignment with 0.05° boundaries, then aggregating
+    5x5 blocks of r001 cells into single r005 cells.
 
 This script:
-    • ...
+    • Pads the r001 mask along lat/lon so edges align with the 0.05° grid
+    • Aggregates 5x5 blocks by summation and applies a threshold (>12) to produce a binary mask
+    • Saves the resulting r005 mask as a NetCDF file
 
 Dependencies:
-   - Python 3.x
-   - netCDF4 (for xarray backend)
-   - python libraries: argparse, sys, pathlib, xarray, numpy
-   - files: {Lake}_mask_r001.nc
- Note: Paths must be adapted to your system.
+    - Python 3.x
+    - Python libraries: argparse, sys, pathlib, xarray, numpy
+    - netCDF4 (for xarray backend)
+    - Files: {Lake}_mask_r001.nc
 
 Usage:
     python convert_r001_mask_to_r005.py --Lake <lake_short_code>
     e.g. python convert_r001_mask_to_r005.py --Lake LW
 
+Output:
+    {Lake}_mask_r005.nc
 """
 
 import argparse
@@ -36,9 +43,10 @@ args = parser.parse_args()
 
 Lake = args.Lake
 grid = "r001"
-input_dir = "/Users/leasophiegrunau/Documents/Work/Bewerbungen/code-examples-sophie-grunau/pre_processing/convert_lake_masks"
+input_dir = Path(__file__).parent.parent
+data_dir = input_dir / 'data' 
 Lake_mask_r001_file = f"{Lake}_mask_r001"
-Lake_mask_r001_path = Path(f"{input_dir}/{Lake_mask_r001_file}.nc")
+Lake_mask_r001_path = data_dir / f"{Lake_mask_r001_file}.nc"
 
 
 # ========== Check if file exists ==========
@@ -166,8 +174,8 @@ Lake_mask_r001 = Lake_mask_r001_netcdf['Mask']
 Lake_mask_aligned_to_r005 = pad_mask_until_005_aligned(Lake_mask_r001)
 Lake_mask_r005 = convert_xarray_to_r005(Lake_mask_aligned_to_r005)
 
-Lake_mask_r005.to_netcdf(f"{input_dir}/{Lake}_mask_r005.nc")
-#Lake_mask_aligned_to_r005.to_netcdf(f"{input_dir}/{Lake}_mask_r001_padded.nc")
+Lake_mask_r005.to_netcdf(data_dir / f"{Lake}_mask_r005.nc")
+#Lake_mask_aligned_to_r005.to_netcdf(data_dir / f"{Lake}_mask_r005.nc")
 
 print(f"✅ Mask converted to r005 and saved: {Lake}_mask_r005.nc")
 

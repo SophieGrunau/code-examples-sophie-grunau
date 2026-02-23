@@ -3,6 +3,7 @@
 """
 Author:      Lea Sophie Grunau  
 Created on:  2025-07-15
+Last updated: 2026-02-23
 
 Identify BOM rainfall stations that were filtered for a given lake but for which
 no corresponding rainfall CSV file has been downloaded yet.
@@ -19,6 +20,8 @@ Usage:
     python 03_identify_missing_rainfall_stations.py --Lake <lake_short_code>
     e.g. python 03_identify_missing_rainfall_stations.py --Lake LW
 
+Output:
+    {Lake}_missed_rainfall_stations.csv
 """
 
 import pandas as pd
@@ -34,8 +37,7 @@ args = parser.parse_args()
 Lake = args.Lake
 
 # Data directory
-data_dir = Path(f"/Users/leasophiegrunau/Documents/Work/Bewerbungen/code-examples-sophie-grunau/pre_processing/combine_rainfall_stations/{Lake}_rainfall_stations")
-
+data_dir = Path(__file__).parent.parent / 'data' / f'{Lake}_rainfall_stations'
 
 # ========== Main workflow ==========
 # 1. Load full list

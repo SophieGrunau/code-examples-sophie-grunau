@@ -18,11 +18,10 @@
 #Data available @ https://doi.pangaea.de/10.1594/PANGAEA.906570 published in OCT2019
 
 ### FOR GEORGE:
-# You need to change line 31 to the directory where you folder is at.
 # If you use windows you might have to change "/" to "\" for files
-# I named your two sample groups "Group 1" (23WC07ap) and "Group 2" (23WC08ap) in line 39,
+# I named your two sample groups "Group 1" (23WC07ap) and "Group 2" (23WC08ap) in line 52,
 # if you change these, it will change in all the plots
-# I named the Lithology categories "Groups" (same as in paper) but you can change it in line 40
+# I named the Lithology categories "Groups" (same as in paper) but you can change it in line 53
 # I have also added extra comments to make the code more readable
 
 #necessary libraries
@@ -37,20 +36,25 @@ library(ggnewscale)
 
 # ------------ READ IN DATA - NEEDS TO BE CHANGED TO YOUR FILES ------------
 #change the directory to the location of your .txt file
-setwd("~/Documents/Work/Bewerbungen/code-examples-sophie-grunau/reproducing_paper_figure_R/") 
-data <- read.table("Data/OSullivan_plot_3c_data.txt", header=TRUE, sep="", dec=".") 
+if (requireNamespace("rstudioapi", quietly = TRUE) && rstudioapi::isAvailable()) {
+  setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+} else {
+  setwd(dirname(normalizePath(sys.frames()[[1]]$ofile)))
+}
+
+data <- read.table("data/OSullivan_plot_3c_data.txt", header=TRUE, sep="", dec=".") 
 Bedrockdata<-data[1:1106,2:4]
 #SOPHIE: REPLACED Testdata WITH new_samples
 #endofdata<-nrow(data) #how many rows are there in the data
 #Testdata<-data[1107:endofdata, ] #the first test datapoint to the last, using the 'endofdata' integer
 
-new_data <- read.table("Data/new_samples.txt", header=TRUE, sep="", dec=".") #filename, use tab deliminated .txt file
+new_data <- read.table("data/new_samples.txt", header=TRUE, sep="", dec=".") #filename, use tab deliminated .txt file
 sample_group_name <- c("Group 1", "Group 2")
 lithology_clas_name <- 'Groups'
 new_data$Sample_Group <- ifelse(grepl("23WC07ap", new_data$Grain), sample_group_name[1], ifelse(grepl("23WC08ap", new_data$Grain), sample_group_name[2], NA))
 
 #SOPHIE: Creates directory for outputs
-dir.create("Plots", showWarnings = FALSE)
+dir.create("output", showWarnings = FALSE)
 
 #The ONLY numbers you need to specify in this code are the following, wherein you need
 #to define the age range you would like the unknowns to be displayed over on SVM plot
@@ -99,7 +103,7 @@ Bedrockplot_newData <- Bedrockplot +
 # add density plot
 Bedrockplot_newData_density <- Bedrockplot_newData + 
   geom_density_2d(aes(x=LREE, y=Sr.Y), bins = 6, data = new_data) #delete or skip this line if density plot is overfit
-ggsave("Plots/Plot3b_new_data_density.pdf", plot = Bedrockplot_newData_density, width = 6, height = 7.5) 
+ggsave("output/Plot3b_new_data_density.pdf", plot = Bedrockplot_newData_density, width = 6, height = 7.5) 
 
 # ------------ PREPARE DATA FOR PLOT 3c: Define test data ------------
 SVM_Train_dataset <- Bedrockdata[, 3:2] #coordinates of the grains
@@ -193,8 +197,8 @@ PredictionFit_test <- predict(SVMmodel, TestTotalSetLOG)
 misclass <- table(predict = PredictionFit_test, truth = TestTotalSetLOG$Lithology) #misclassification table
 # SOPHIE: SAVED TABLE
 #Write explanation line and then append the table
-writeLines("Rows = predicted class, Columns = true class", "Plots/Plot3c_SVM_model_misclassification_table.txt")
-write.table(as.data.frame.matrix(misclass), "Plots/Plot3c_SVM_model_misclassification_table.txt", 
+writeLines("Rows = predicted class, Columns = true class", "output/Plot3c_SVM_model_misclassification_table.txt")
+write.table(as.data.frame.matrix(misclass), "output/Plot3c_SVM_model_misclassification_table.txt", 
             sep = "\t", quote = FALSE, row.names = TRUE, col.names = NA, append = TRUE)
 
 #The following creates an artificial set of data, as a grid of points in PC space, the SVM classification is then applied to this. This grid is then used to create plots using ggplot
@@ -225,7 +229,7 @@ SVM_plot<- ggplot(SVMgridAesthetics, aes(x = LREE, y = Sr.Y, fill = PredictGrid)
   scale_x_continuous(labels = log_labels) +
   scale_y_continuous(labels = log_labels)
 # save
-ggsave("Plots/Plot3c_SVM_model.pdf", plot = SVM_plot, width = 6, height = 7.5)
+ggsave("output/Plot3c_SVM_model.pdf", plot = SVM_plot, width = 6, height = 7.5)
  
 
 # ------------ Categories/ Test your data ------------
@@ -237,7 +241,7 @@ PredictionFit_new_data$Grain <- new_data$Grain #SOPHIE: Add grain label
 PredictionFit_new_data <- PredictionFit_new_data[, c("Grain", names(PredictionFit_new_data)[names(PredictionFit_new_data) != "Grain"])]
 PredictionFit_new_data$Sample_Group <- new_data$Sample_Group #SOPHIE: Add sample_group
 PredictionFit_new_data$Age<- new_data$Age #adds age information about the unknowns if included in file
-write_excel_csv(PredictionFit_new_data, "Plots/Plot3c_SVM_model_new_data_table.txt") #Export a csv with predictions for each individual grain. You need to choose where the file will be saved on your computer, and its name.
+write_excel_csv(PredictionFit_new_data, "output/Plot3c_SVM_model_new_data_table.txt") #Export a csv with predictions for each individual grain. You need to choose where the file will be saved on your computer, and its name.
 
 ###### 3c Plot your data on SMV plot ######
 new_dataFinalLOG<-log10(new_data[,3:4])
@@ -260,7 +264,7 @@ SVM_plot_newdata_groups <- SVM_plot + geom_tile() +  # SVM grid/background
   scale_colour_manual(values = setNames(c("darkred", "blue"), sample_group_name)) +
   labs(colour = "Sample group", fill = lithology_clas_name) 
 # save
-ggsave("Plots/Plot3c_SVM_model_new_data_by_group.pdf", plot = SVM_plot_newdata_groups, width = 6, height = 7.5)
+ggsave("output/Plot3c_SVM_model_new_data_by_group.pdf", plot = SVM_plot_newdata_groups, width = 6, height = 7.5)
 
 
 #SOPHIE: Plot 3c - new data sample groups & ages
@@ -287,7 +291,7 @@ SVM_plot_newdata_groups_ages <- SVM_plot +
   guides(fill = guide_legend(order = 1),
          colour = guide_colourbar(order = 2))
 # save
-ggsave("Plots/Plot3c_SVM_model_new_data_by_group_age.pdf", plot = SVM_plot_newdata_groups_ages, width = 6, height = 7.5)
+ggsave("output/Plot3c_SVM_model_new_data_by_group_age.pdf", plot = SVM_plot_newdata_groups_ages, width = 6, height = 7.5)
 
 
 #copy and paste the following to a line if you like, it sticks both main plots together:

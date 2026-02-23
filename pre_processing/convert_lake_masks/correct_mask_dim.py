@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Correct Lake Mask Dimensions and Coordinate Order
 
 Author:      Lea Sophie Grunau  
 Created on:  2025-07-07
+Last updated: 2026-02-23
 
 Description:
     Corrects dimensional inconsistencies in lake mask NetCDF files by ensuring
@@ -24,20 +23,17 @@ Dependencies:
     - Python 3.x
     - xarray, numpy
     - netCDF4 (for xarray backend)
-    - Input file: {Lake}_mask_{grid}.nc
-
-Note: 
-    Input directory path must be adapted to your system.
+    - Input file: {Lake}_mask_r001.nc
 
 Usage:
     python correct_mask_dim.py --Lake <lake_short_code>
     
     Example:
         python correct_mask_dim.py --Lake LW
-    
-    Output:
-        {Lake}_mask_{grid}_reversed.nc
 
+Output:
+    {Lake}_mask_r001_reversed.nc
+    
 Common Issues Fixed:
     - Southern hemisphere data with lat coordinates in decreasing order
     - Non-standard dimension ordering (e.g., lon-lat-time instead of time-lat-lon)
@@ -57,10 +53,10 @@ parser.add_argument("--Lake", required=True, help="Lake name short form (e.g. LE
 args = parser.parse_args()
 
 Lake = args.Lake
-grid = "r001"
-input_dir = f"/Users/leasophiegrunau/Desktop/PhD_Australia/Programming/Python/Data.nosync/AGCD/{Lake}"
-Lake_mask_file = f"{Lake}_mask_{grid}"
-Lake_mask_path = Path(f"{input_dir}/{Lake_mask_file}.nc")
+input_dir = Path(__file__).parent.parent
+data_dir = input_dir / 'data'
+Lake_mask_file = f"{Lake}_mask_r001"
+Lake_mask_path = data_dir / f"{Lake_mask_file}.nc"
 
 
 # ========== Check if file exists ==========
@@ -117,7 +113,7 @@ Lake_mask_binary = Lake_mask_correctedDim_order.astype(np.int32)
 Lake_mask_binary.coords['lat'] = Lake_mask_binary.coords['lat'].round(2)
 Lake_mask_binary.coords['lon'] = Lake_mask_binary.coords['lon'].round(2)
 
-Lake_mask_binary.to_netcdf(f"{input_dir}/{Lake_mask_file}_reversed.nc")
+Lake_mask_binary.to_netcdf(data_dir / f"{Lake_mask_file}_reversed.nc")
 
 
 print(f"✅ Mask reversed and saved: {Lake_mask_file}_reversed.nc")

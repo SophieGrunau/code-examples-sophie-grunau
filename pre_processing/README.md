@@ -1,18 +1,40 @@
 
-# Rainfall Station Data Processing Pipeline
+# Pre-Processing Pipeline
 **Author:** Lea Sophie Grunau
 
-Automated pipeline for filtering, downloading, and combining Bureau of Meteorology rainfall station data into a unified NetCDF file.
+Pre-processing tools for lake mask correction and rainfall station data processing.
+The two subfolders are independent of each other but both use `{Lake}_mask_r001.nc` as input,
+which should be placed in the `data/{Lake}_rainfall_stations/` folder.
 
-## Pipeline Overview
+## Folder Structure
+```
+pre_processing/
+├── combine_rainfall_stations/   # Filter, download, and combine BOM rainfall station data
+├── convert_lake_masks/          # Correct lake mask dimensions and resolution
+└── data/
+    └── {Lake}_rainfall_stations/
+```
 
-This is a **4-step sequential pipeline** that must be run in order:
+## convert_lake_masks
+Two standalone scripts for correcting lake masks exported from ArcGIS:
+
+**`correct_mask_dim.py`** — Corrects dimensional inconsistencies (e.g. reversed latitude, wrong dimension order). Run this first if your mask has incorrect dimensions.
+```bash
+python correct_mask_dim.py --Lake LW
+```
+
+**`convert_r001_mask_to_r005.py`** — Converts a mask from 0.01° (r001) to 0.05° (r005) resolution.
+```bash
+python convert_r001_mask_to_r005.py --Lake LW
+```
+
+## combine_rainfall_stations
+A 4-step sequential pipeline for processing BOM rainfall station data:
 ```
 01_filter → 02_move → 03_identify → 04_combine
 ```
 
 ## Usage
-
 Run each script in sequence:
 ```bash
 # Step 1: Filter stations and open download webpages
@@ -29,7 +51,6 @@ python 04_combine_rainfall_stations_to_netcdf.py --Lake LW
 ```
 
 ## What Each Step Does
-
 **Step 1: `01_filter_rainfall_stations_by_mask.py`**
 - Spatially filters BOM stations to those within the lake catchment
 - Opens webpages for manual data download (with batching and delay)
@@ -55,7 +76,6 @@ python 04_combine_rainfall_stations_to_netcdf.py --Lake LW
 - Outputs: `{Lake}_daily_station_rainfall.nc`
 
 ## Requirements
-
 **Python:**
 - Python 3.x
 - xarray, pandas, numpy, requests, webbrowser
@@ -67,15 +87,12 @@ python 04_combine_rainfall_stations_to_netcdf.py --Lake LW
 
 **System:**
 - Web browser for manual data download in Step 1
-- Paths in scripts must be adapted to your system
 
 ## Notes
-
 - **Step 1** opens BOM webpages for manual download - be prepared to download multiple CSV files
 - **Step 2** requires manual completion of downloads before running
 - **Step 3** is optional QC - use if downloads incomplete
 - All station CSVs must be in IDCJAC0009 format (BOM daily rainfall)
 
 ## Output
-
 Final output: `{Lake}_daily_station_rainfall.nc` containing all catchment stations with aligned daily time series.

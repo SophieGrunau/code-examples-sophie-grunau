@@ -3,6 +3,7 @@
 """
 Author:      Lea Sophie Grunau  
 Created on:  2025-07-15  
+Last updated: 2026-02-23
 
 Combine daily rainfall time series from multiple BOM rainfall stations
 (for a single lake) into a single NetCDF file.
@@ -20,10 +21,18 @@ Assumptions:
     • Input CSVs follow BOM's daily data format with "Year", "Month", "Day", and
       "Rainfall amount (millimetres)" columns.
 
+Dependencies:
+    - Python 3.x
+    - Python libraries: argparse, sys, pathlib, pandas, xarray
+    - netCDF4 (for xarray backend)
+    - Files: {Lake}_rainfall_stations.csv, IDCJAC0009_*_1800_Data.csv
+
 Usage:
     python 04_combine_rainfall_stations_to_netcdf.py --Lake <lake_short_code>
     e.g. python 04_combine_rainfall_stations_to_netcdf.py --Lake LW
 
+Output:
+    {Lake}_daily_station_rainfall.nc
 """
 
 import pandas as pd
@@ -39,9 +48,9 @@ parser.add_argument("--Lake", required=True, help="Lake short code (e.g. LE, LW,
 args = parser.parse_args()
 
 Lake = args.Lake
-data_dir = Path(f"/Users/leasophiegrunau/Documents/Work/Bewerbungen/code-examples-sophie-grunau/pre_processing/combine_rainfall_stations/{Lake}_rainfall_stations")
-stations_info_file = Path(f"{data_dir}/{Lake}_rainfall_stations.csv")
-output_file = Path(f"{data_dir}/{Lake}_daily_station_rainfall.nc")
+data_dir = Path(__file__).parent.parent / 'data' / f'{Lake}_rainfall_stations'
+stations_info_file = data_dir / f'{Lake}_rainfall_stations.csv'
+output_file = data_dir / f'{Lake}_daily_station_rainfall.nc'
 
 
 # ========== Check existence ==========
@@ -54,7 +63,7 @@ if not stations_info_file.is_file():
     sys.exit(1)
 
 
-# ========== Defenitions ==========
+# ========== Definitions ==========
 def read_station_rainfall(station_rainfall_filepath, station_id):
     """
     Reads daily rainfall data for a single BOM station from CSV.
@@ -138,7 +147,6 @@ combined_station_rainfall_ds = xr.Dataset(
         "created_by": "combine_rainfall_stations_to_netcdf.py"
     }
 )
-
 
 
 # ========== Save ==========

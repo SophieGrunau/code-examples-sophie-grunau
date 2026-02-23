@@ -1,5 +1,7 @@
 # bashrc_functions.sh
 # Author: Sophie Grunau
+# Note: Designed for the NCI Gadi HPC system. Paths and PBS directives are 
+# specific to that environment and would need to be adapted to run elsewhere.
 # Dependencies: NCI environment with qsub
 #   - crop_precip_files_agcd.pbs, crop_temp_files_agcd.pbs
 #   - crop_precip_files_agcd.sh, crop_temp_files_agcd.sh
