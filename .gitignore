@@ -39,3 +39,4 @@ venv/
 *.tar.gz
 *.nc
 .RDataTmp
+.RDataTmp
