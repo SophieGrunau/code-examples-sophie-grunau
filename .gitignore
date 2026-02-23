@@ -37,3 +37,4 @@ venv/
 *.zip
 *.tar.gz
 *.nc
+.RDataTmp
